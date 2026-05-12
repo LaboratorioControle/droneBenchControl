@@ -3,9 +3,11 @@
 #include <freertos/task.h>
 #include <freertos/queue.h>
 
-#include "Constants.h"
+#include "constants.h"
 #include "Motor.h"
 #include "Sensor.h"
+#include "WebManager.h"
+#include "env.h"
 
 struct TaskParams {
     QueueHandle_t queue;
@@ -19,7 +21,7 @@ void taskSensor(void* pvParams) {
     for (;;) {
         data = p->sensor->read();
         xQueueSend(p->queue, &data, portMAX_DELAY);
-        Serial.printf("[Sensor] pitch=%.2f\n", data.pitch);
+        //Serial.printf("[Sensor] pitch=%.2f\n", data.pitch);
         vTaskDelay(pdMS_TO_TICKS(1000 / FREQ_SENSOR_HZ));
     }
 }
@@ -40,19 +42,24 @@ void taskControl(void* pvParams) {
         float output = error * KP;
         p->motor->setVelocidade(output);
 
-        Serial.printf("[Control] error=%.2f output=%.2f\n", error, output);
+        //Serial.printf("[Control] error=%.2f output=%.2f\n", error, output);
         vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(1000 / FREQ_CONTROL_HZ));
     }
 }
 
 void setup() {
     Serial.begin(115200);
+    static WebManager webMan(AP_SSID, AP_PASSWORD);
+    webMan.begin();
+    delay(10);
 
     static Motor motor(PIN_MOTOR_PITCH_PWM, PIN_MOTOR_PITCH_DIR);
     motor.begin();
+    delay(10);
 
     static Sensor sensor;
     sensor.begin();
+    delay(10);
 
     static QueueHandle_t queue = xQueueCreate(5, sizeof(SensorData));
     assert(queue != NULL);
