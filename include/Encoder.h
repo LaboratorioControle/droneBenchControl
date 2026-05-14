@@ -15,7 +15,7 @@ private:
     uint8_t pinB;
     volatile int32_t pulseCount;
 
-    static void IRAM_ATTR isrHandler(void* arg);
+    static void IRAM_ATTR isr(void* arg);
 };
 
-#endif
+#endif  // ENCODER_H
