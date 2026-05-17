@@ -44,7 +44,8 @@ void taskTelemetry(void* pvParams) {
     auto* p = static_cast<TaskParams*>(pvParams);
     SensorData data;
     uint32_t t = 0;
-
+    xQueueReceive(p->telemQueue, &data, portMAX_DELAY);
+    
     Serial.println("t_ms,pitch_deg,yaw_deg,enc_pitch_deg,enc_yaw_deg");
 
     for (;;) {
@@ -66,7 +67,7 @@ void taskControl(void* pvParams) {
     SensorData last     = {};
     SensorData data;
     // first read: block until sensor delivers
-    xQueueReceive(p->queue, &last, portMAX_DELAY);
+    xQueueReceive(p->ctrlQueue, &last, portMAX_DELAY);
 
     for (;;) {
         if (xQueueReceive(p->ctrlQueue, &data, 0) == pdPASS) {
@@ -76,13 +77,13 @@ void taskControl(void* pvParams) {
         // --- Eixo Pitch ---
         float errPitch = 0.0f - last.pitch;
         // TODO (MCM): substituir por PID
-        p->motorPitch->setVelocidade(errPitch * KP);
+        p->motorPitch->setVelocidade(errPitch);
 
         // --- Eixo Yaw ---
         // Em 1DOF: yaw travado fisicamente → last.yaw = 0 → errYaw = 0 → duty = 0
         float errYaw = 0.0f - last.yaw;
         // TODO (MCM): substituir por PID
-        p->motorYaw->setVelocidade(errYaw * KP);
+        p->motorYaw->setVelocidade(errYaw);
 
         vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(1000 / FREQ_CONTROL_HZ));
     }
@@ -117,9 +118,6 @@ void setup() {
     motorPitch.begin();
     motorYaw.begin();
     delay(10);
-
-    static QueueHandle_t queue = xQueueCreate(5, sizeof(SensorData));
-    assert(queue != NULL);
 
     // Filas
     ctrlQueue  = xQueueCreate(5,  sizeof(SensorData));
