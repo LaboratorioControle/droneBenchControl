@@ -75,11 +75,31 @@
     .tab:hover { color: #94a3b8; }
     .tab.active { color: #06b6d4; border-bottom-color: #06b6d4; }
 
-    /* ── Page sections ── */
-    .page { display: none; padding: 20px; max-width: 520px; margin: 0 auto; }
+    /* ── Pages ── */
+    .page { display: none; padding: 16px; max-width: 520px; margin: 0 auto; }
     .page.active { display: block; }
 
-    /* ── Cards ── */
+    /* ── Chart cards ── */
+    .chart-card {
+      background: #1e293b;
+      border: 1px solid #0e7490;
+      border-radius: 12px;
+      padding: 14px 14px 10px;
+      margin-bottom: 14px;
+    }
+
+    .chart-title {
+      color: #67e8f9;
+      font-size: 0.68rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      margin-bottom: 10px;
+    }
+
+    canvas { display: block; border-radius: 4px; width: 100%; }
+
+    /* ── Config fields ── */
     .card {
       background: #1e293b;
       border: 1px solid #0e7490;
@@ -97,36 +117,6 @@
       margin-bottom: 16px;
     }
 
-    /* ── Telemetry grid ── */
-    .tele-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
-    }
-
-    .tele-item {
-      background: #0f172a;
-      border: 1px solid #1e3a5f;
-      border-radius: 8px;
-      padding: 16px;
-    }
-
-    .tele-lbl {
-      font-size: 0.65rem;
-      color: #64748b;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-    }
-
-    .tele-val {
-      font-size: 1.4rem;
-      font-weight: 700;
-      color: #67e8f9;
-      margin-top: 6px;
-      font-variant-numeric: tabular-nums;
-    }
-
-    /* ── Config fields ── */
     .field { margin-bottom: 14px; }
     .field:last-child { margin-bottom: 0; }
 
@@ -177,7 +167,6 @@
     .btn-danger { background: transparent; color: #f87171; border: 1px solid #f87171; }
     .btn-danger:hover { background: rgba(248,113,113,0.1); }
 
-    /* ── Status line ── */
     .status {
       text-align: center;
       margin-top: 12px;
@@ -266,7 +255,6 @@
       border-radius: 50%;
       background: #06b6d4;
       cursor: pointer;
-      transition: background 0.15s;
     }
     input[type="range"]:disabled { opacity: 0.35; cursor: not-allowed; }
     input[type="range"]:disabled::-webkit-slider-thumb { background: #475569; cursor: not-allowed; }
@@ -297,23 +285,17 @@
 
   <!-- ── Telemetry ── -->
   <section id="tab-telemetry" class="page active">
-    <div class="tele-grid">
-      <div class="tele-item">
-        <div class="tele-lbl">Pitch IMU</div>
-        <div class="tele-val" id="t-pitch">--</div>
-      </div>
-      <div class="tele-item">
-        <div class="tele-lbl">Yaw</div>
-        <div class="tele-val" id="t-yaw">--</div>
-      </div>
-      <div class="tele-item">
-        <div class="tele-lbl">Enc Pitch</div>
-        <div class="tele-val" id="t-enc-pitch">--</div>
-      </div>
-      <div class="tele-item">
-        <div class="tele-lbl">Enc Yaw</div>
-        <div class="tele-val" id="t-enc-yaw">--</div>
-      </div>
+    <div class="chart-card">
+      <div class="chart-title">Acelerômetro (g)</div>
+      <canvas id="c-accel" height="140"></canvas>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Vel. Angular (°/s)</div>
+      <canvas id="c-gyro" height="140"></canvas>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Encoders (°)</div>
+      <canvas id="c-enc" height="140"></canvas>
     </div>
   </section>
 
@@ -386,26 +368,157 @@
       });
     });
 
-    // ── SSE telemetry ──
-    const dot      = document.getElementById('dot');
-    const connLbl  = document.getElementById('conn-lbl');
+    // ── Rolling chart ──
+    class RollingChart {
+      constructor(canvas, { n = 200, yMin, yMax, autoScale = false, series = [] }) {
+        this.cv        = canvas;
+        this.ctx       = canvas.getContext('2d');
+        this.n         = n;
+        this.yMin      = yMin;
+        this.yMax      = yMax;
+        this.autoScale = autoScale;
+        this.series    = series.map(s => ({ ...s, data: [] }));
+        this._raf      = null;
+        this._draw();
+      }
 
-    function setTele(id, val, unit) {
-      const el = document.getElementById(id);
-      if (el) el.textContent = val !== undefined ? parseFloat(val).toFixed(2) + unit : '--';
+      push(vals) {
+        this.series.forEach((s, i) => {
+          s.data.push(vals[i] ?? null);
+          if (s.data.length > this.n) s.data.shift();
+        });
+        if (!this._raf) {
+          this._raf = requestAnimationFrame(() => { this._raf = null; this._draw(); });
+        }
+      }
+
+      _draw() {
+        const { ctx, cv, series, n } = this;
+        const W = cv.width, H = cv.height;
+        const PL = 40, PR = 6, PT = 6, PB = 24;
+        const cW = W - PL - PR, cH = H - PT - PB;
+
+        let yMin = this.yMin, yMax = this.yMax;
+        if (this.autoScale) {
+          const all = series.flatMap(s => s.data.filter(v => v !== null));
+          if (all.length) {
+            yMin = Math.min(...all);
+            yMax = Math.max(...all);
+            const pad = (yMax - yMin) * 0.12 || 1;
+            yMin -= pad; yMax += pad;
+          } else { yMin = -1; yMax = 1; }
+        }
+
+        const sy = v => PT + cH - ((v - yMin) / (yMax - yMin)) * cH;
+        const sx = i => PL + (i / (n - 1)) * cW;
+
+        // background
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(0, 0, W, H);
+
+        // grid
+        const TICKS = 4;
+        ctx.lineWidth = 1;
+        for (let i = 0; i <= TICKS; i++) {
+          const y   = PT + (i / TICKS) * cH;
+          const val = yMax - (i / TICKS) * (yMax - yMin);
+          ctx.strokeStyle = '#1e3a5f';
+          ctx.beginPath(); ctx.moveTo(PL, y); ctx.lineTo(PL + cW, y); ctx.stroke();
+          ctx.fillStyle = '#475569';
+          ctx.font = '9px monospace';
+          ctx.textAlign = 'right';
+          ctx.fillText(val.toFixed(1), PL - 4, y + 3.5);
+        }
+
+        // zero line
+        if (yMin < 0 && yMax > 0) {
+          const zy = sy(0);
+          ctx.strokeStyle = '#334155';
+          ctx.setLineDash([3, 3]);
+          ctx.beginPath(); ctx.moveTo(PL, zy); ctx.lineTo(PL + cW, zy); ctx.stroke();
+          ctx.setLineDash([]);
+        }
+
+        // series lines
+        series.forEach(s => {
+          ctx.strokeStyle = s.color;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          let first = true;
+          s.data.forEach((v, i) => {
+            if (v === null) { first = true; return; }
+            const x = sx(i), y = sy(v);
+            if (first) { ctx.moveTo(x, y); first = false; } else ctx.lineTo(x, y);
+          });
+          ctx.stroke();
+        });
+
+        // legend
+        let lx = PL;
+        ctx.font = '10px sans-serif';
+        series.forEach(s => {
+          ctx.fillStyle = s.color;
+          ctx.fillRect(lx, H - 14, 14, 3);
+          ctx.fillStyle = '#94a3b8';
+          ctx.textAlign = 'left';
+          ctx.fillText(s.label, lx + 17, H - 8);
+          lx += ctx.measureText(s.label).width + 34;
+        });
+      }
     }
+
+    // ── Init charts ──
+    // Canvas internal width matches the card content area
+    const CHART_W = Math.min(480, window.innerWidth - 60);
+    const CHART_H = 140;
+
+    function mkChart(id, opts) {
+      const c = document.getElementById(id);
+      c.width  = CHART_W;
+      c.height = CHART_H;
+      return new RollingChart(c, opts);
+    }
+
+    const chartAccel = mkChart('c-accel', {
+      n: 200, yMin: -2.2, yMax: 2.2,
+      series: [
+        { label: 'ax', color: '#f87171' },
+        { label: 'ay', color: '#4ade80' },
+        { label: 'az', color: '#60a5fa' },
+      ]
+    });
+
+    const chartGyro = mkChart('c-gyro', {
+      n: 200, yMin: -520, yMax: 520,
+      series: [
+        { label: 'gx', color: '#f87171' },
+        { label: 'gy', color: '#4ade80' },
+        { label: 'gz', color: '#60a5fa' },
+      ]
+    });
+
+    const chartEnc = mkChart('c-enc', {
+      n: 200, autoScale: true,
+      series: [
+        { label: 'Enc Pitch', color: '#06b6d4' },
+        { label: 'Enc Yaw',   color: '#fb923c' },
+      ]
+    });
+
+    // ── SSE ──
+    const dot     = document.getElementById('dot');
+    const connLbl = document.getElementById('conn-lbl');
 
     const src = new EventSource('/api/events');
     src.addEventListener('telemetry', e => {
       try {
         const d = JSON.parse(e.data);
-        setTele('t-pitch',     d.pitch,    '°');
-        setTele('t-yaw',       d.yaw,      '°');
-        setTele('t-enc-pitch', d.encPitch, '°');
-        setTele('t-enc-yaw',   d.encYaw,   '°');
+        chartAccel.push([d.ax, d.ay, d.az]);
+        chartGyro.push([d.gx, d.gy, d.gz]);
+        chartEnc.push([d.encPitch, d.encYaw]);
       } catch {}
     });
-    src.onopen  = () => { dot.classList.add('on');  connLbl.textContent = 'online';  };
+    src.onopen  = () => { dot.classList.add('on');    connLbl.textContent = 'online';  };
     src.onerror = () => { dot.classList.remove('on'); connLbl.textContent = 'offline'; };
 
     // ── LQI Config ──
@@ -439,7 +552,7 @@
     }
 
     // ── Test / mode toggle ──
-    let testMode  = false;
+    let testMode   = false;
     let motorTimer = null;
     let lastSend   = 0;
 
@@ -459,12 +572,12 @@
       const btn     = document.getElementById('mode-btn');
       const sliders = document.querySelectorAll('.motor-slider');
       if (active) {
-        btn.textContent  = 'Modo: Teste — Ativar Controle';
-        btn.className    = 'btn-mode test';
+        btn.textContent = 'Modo: Teste — Ativar Controle';
+        btn.className   = 'btn-mode test';
         sliders.forEach(s => s.disabled = false);
       } else {
-        btn.textContent  = 'Modo: Controle — Ativar Teste';
-        btn.className    = 'btn-mode control';
+        btn.textContent = 'Modo: Controle — Ativar Teste';
+        btn.className   = 'btn-mode control';
         sliders.forEach(s => s.disabled = true);
       }
     }
@@ -478,13 +591,10 @@
       document.getElementById('val-' + motor).textContent = val;
       document.getElementById('dir-' + motor).textContent = dirLabel(val);
       if (!testMode) return;
-
-      // throttle: fire immediately if ≥40 ms since last send, else schedule trailing call
       const now = Date.now();
       clearTimeout(motorTimer);
       if (now - lastSend >= 40) {
-        lastSend = now;
-        sendMotors();
+        lastSend = now; sendMotors();
       } else {
         motorTimer = setTimeout(() => { lastSend = Date.now(); sendMotors(); }, 40 - (now - lastSend));
       }
@@ -518,7 +628,6 @@
       }
     }
 
-    // stop motors if user closes / navigates away while in test mode
     window.addEventListener('pagehide', () => {
       if (testMode) navigator.sendBeacon('/api/test/stop');
     });

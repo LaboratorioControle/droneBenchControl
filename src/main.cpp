@@ -50,19 +50,28 @@ void taskTelemetry(void* pvParams) {
     uint32_t t = 0;
 
     xQueueReceive(p->telemQueue, &data, portMAX_DELAY);
-    Serial.println("t_ms,pitch_deg,yaw_deg,enc_pitch_deg,enc_yaw_deg");
+    Serial.println("t_ms,ax_g,ay_g,az_g,gx_dps,gy_dps,gz_dps,pitch_deg,yaw_deg,enc_pitch_deg,enc_yaw_deg");
 
     for (;;) {
         if (xQueueReceive(p->telemQueue, &data, portMAX_DELAY) == pdPASS) {
-            Serial.printf("%lu,%.4f,%.4f,%.4f,%.4f\n",
-                t, data.pitch, data.yaw,
+            Serial.printf("%lu,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f\n",
+                t,
+                data.ax, data.ay, data.az,
+                data.gx, data.gy, data.gz,
+                data.pitch, data.yaw,
                 data.encPitchDeg, data.encYawDeg);
 
             if (p->web) {
-                char buf[128];
+                char buf[200];
                 snprintf(buf, sizeof(buf),
-                    "{\"pitch\":%.2f,\"yaw\":%.2f,\"encPitch\":%.2f,\"encYaw\":%.2f}",
-                    data.pitch, data.yaw, data.encPitchDeg, data.encYawDeg);
+                    "{\"ax\":%.3f,\"ay\":%.3f,\"az\":%.3f,"
+                    "\"gx\":%.2f,\"gy\":%.2f,\"gz\":%.2f,"
+                    "\"pitch\":%.2f,\"yaw\":%.2f,"
+                    "\"encPitch\":%.2f,\"encYaw\":%.2f}",
+                    data.ax, data.ay, data.az,
+                    data.gx, data.gy, data.gz,
+                    data.pitch, data.yaw,
+                    data.encPitchDeg, data.encYawDeg);
                 p->web->sendTelemetry(buf);
             }
 

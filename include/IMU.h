@@ -3,16 +3,20 @@
 
 #include <Arduino.h>
 #include <Wire.h>
-#include <ICM42670P.h>
+#include <MPU6050.h>
 #include "constants.h"
 #include "Encoder.h"
 
-// Em 1DOF yaw será sempre 0
 struct SensorData {
-    float pitch;        // graus — IMU acelerômetro
-    float yaw;          // graus — integração gyro
-    float encPitchDeg;  // encoder pitch
-    float encYawDeg;    // encoder yaw
+    // raw IMU — acelerômetro (g) e giroscópio (°/s)
+    float ax, ay, az;
+    float gx, gy, gz;
+    // ângulos processados
+    float pitch;        // graus — atan2(ay, az)
+    float yaw;          // graus — integração gz
+    // encoders
+    float encPitchDeg;
+    float encYawDeg;
 };
 
 class IMU {
@@ -24,7 +28,7 @@ public:
     SensorData read();
 
 private:
-    ICM42670 imu;
+    MPU6050 imu;
 
     Encoder* encPitch = nullptr;
     Encoder* encYaw   = nullptr;

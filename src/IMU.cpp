@@ -1,11 +1,15 @@
 #include "IMU.h"
 #include <math.h>
 
-IMU::IMU() : imu(Wire, 0) {}
+// Accel ±2g → 16384 LSB/g
+// Gyro  ±500°/s → 65.5 LSB/(°/s)
+static constexpr float ACCEL_SCALE = 16384.0f;
+static constexpr float GYRO_SCALE  = 65.5f;
+
+IMU::IMU() : imu(IMU_I2C_ADDR) {}
 
 void IMU::begin() {
-    // Verifica o estado do barramento antes de inicializar Wire
-    // Evita travar se o IMU estiver ausente ou sem alimentacao
+    // Pre-check: abort if I2C bus is held low (IMU absent or unpowered)
     pinMode(IMU_SDA, INPUT_PULLUP);
     pinMode(IMU_SCL, INPUT_PULLUP);
     delayMicroseconds(200);
@@ -15,27 +19,30 @@ void IMU::begin() {
     }
 
     Wire.begin(IMU_SDA, IMU_SCL);
-    Wire.setClock(100000);
+    Wire.setClock(400000);
     Wire.setTimeOut(10);
-    delay(10);  // ICM42670 needs ~10ms after VDD before I2C is ready
+    delay(10);
 
-    // Probe rapido: so chama imu.begin() se o dispositivo responder
+    // Quick probe before initialize()
     Wire.beginTransmission(IMU_I2C_ADDR);
     if (Wire.endTransmission() != 0) {
-        Serial.println("[IMU] ICM42670 nao encontrado, continuando sem IMU");
+        Serial.println("[IMU] MPU6050 nao encontrado, continuando sem IMU");
         return;
     }
 
-    if (imu.begin() != 0) {
-        Serial.println("[IMU] Falha ao iniciar ICM42670, continuando sem IMU");
+    imu.initialize();
+    if (!imu.testConnection()) {
+        Serial.println("[IMU] Falha na conexao MPU6050, continuando sem IMU");
         return;
     }
 
-    imu.startAccel(100, 2);
-    imu.startGyro(100, 500);
+    imu.setFullScaleAccelRange(MPU6050_ACCEL_FS_2);   // ±2g
+    imu.setFullScaleGyroRange(MPU6050_GYRO_FS_500);    // ±500°/s
+    imu.setDLPFMode(MPU6050_DLPF_BW_42);               // 42 Hz LPF
+
     lastReadUs = micros();
-    available = true;
-    Serial.println("[IMU] ICM42670 iniciado");
+    available  = true;
+    Serial.println("[IMU] MPU6050 iniciado");
 }
 
 void IMU::attachEncoders(Encoder* pitch, Encoder* yaw) {
@@ -46,26 +53,24 @@ void IMU::attachEncoders(Encoder* pitch, Encoder* yaw) {
 SensorData IMU::read() {
     SensorData data = {};
 
-    if (!available) {
-        data.encPitchDeg = encPitch ? encPitch->getAngleDeg() : 0.0f;
-        data.encYawDeg   = encYaw   ? encYaw->getAngleDeg()   : 0.0f;
-        return data;
-    }
+    if (available) {
+        int16_t rawAx, rawAy, rawAz, rawGx, rawGy, rawGz;
+        imu.getMotion6(&rawAx, &rawAy, &rawAz, &rawGx, &rawGy, &rawGz);
 
-    inv_imu_sensor_event_t event;
+        data.ax = rawAx / ACCEL_SCALE;
+        data.ay = rawAy / ACCEL_SCALE;
+        data.az = rawAz / ACCEL_SCALE;
+        data.gx = rawGx / GYRO_SCALE;
+        data.gy = rawGy / GYRO_SCALE;
+        data.gz = rawGz / GYRO_SCALE;
 
-    if (imu.getDataFromRegisters(event) == 0) {
-        float ay = event.accel[1] / 1000.0f;
-        float az = event.accel[2] / 1000.0f;
-        float gz = event.gyro[2] / 1000.0f;
-
-        data.pitch = atan2f(ay, az) * 180.0f / PI;
+        data.pitch = atan2f(data.ay, data.az) * 180.0f / PI;
 
         unsigned long now = micros();
         float dt = (now - lastReadUs) / 1000000.0f;
         lastReadUs = now;
 
-        yawAccum += gz * dt;
+        yawAccum += data.gz * dt;
         data.yaw = yawAccum;
     }
 
