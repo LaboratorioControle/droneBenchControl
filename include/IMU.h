@@ -3,7 +3,8 @@
 
 #include <Arduino.h>
 #include <Wire.h>
-#include <ICM42670P.h>
+#include <Adafruit_MPU6050.h>
+#include <Adafruit_Sensor.h>
 #include "constants.h"
 #include "Encoder.h"
 
@@ -24,7 +25,7 @@ public:
     SensorData read();
 
 private:
-    ICM42670 imu;
+    Adafruit_MPU6050 imu;
 
     Encoder* encPitch = nullptr;
     Encoder* encYaw   = nullptr;
