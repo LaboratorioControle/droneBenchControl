@@ -33,11 +33,7 @@ void WebManager::begin() {
         request->send(LittleFS, "/index.html", "text/html");
     });
 
-    server.on("/test", HTTP_GET, [](AsyncWebServerRequest* request) {
-        request->send(LittleFS, "/test.html", "text/html");
-    });
-
-    // --- PID params ---
+    // --- LQI params ---
     server.on("/api/params", HTTP_GET, [](AsyncWebServerRequest* request) {
         request->send(LittleFS, "/parameters.json", "application/json");
     });
@@ -50,19 +46,14 @@ void WebManager::begin() {
         };
 
         String json =
-            "[\n"
-            "    {\n"
-            "        \"Kp1\": \"" + get("Kp1") + "\",\n"
-            "        \"Kd1\": \"" + get("Kd1") + "\",\n"
-            "        \"Ki1\": \"" + get("Ki1") + "\"\n"
-            "    },\n"
-            "    {\n"
-            "        \"Kp2\": \"" + get("Kp2") + "\",\n"
-            "        \"Kd2\": \"" + get("Kd2") + "\",\n"
-            "        \"Ki2\": \"" + get("Ki2") + "\"\n"
-            "    }\n"
-            "]";
-        Serial.println(json);
+            "{\n"
+            "    \"k1\": "       + get("k1")       + ",\n"
+            "    \"k2\": "       + get("k2")       + ",\n"
+            "    \"k3\": "       + get("k3")       + ",\n"
+            "    \"k4\": "       + get("k4")       + ",\n"
+            "    \"pitch_sp\": " + get("pitch_sp") + ",\n"
+            "    \"yaw_sp\": "   + get("yaw_sp")   + "\n"
+            "}";
 
         File f = LittleFS.open("/parameters.json", "w");
         if (!f) {
@@ -90,6 +81,30 @@ void WebManager::begin() {
         cmd.mode = MotorCmd::Mode::TEST;
         cmd.dutyPitch = (motor == 0) ? static_cast<float>(duty) : 0.0f;
         cmd.dutyYaw   = (motor == 1) ? static_cast<float>(duty) : 0.0f;
+
+        xQueueOverwrite(motorCmdQueue, &cmd);
+        request->send(200, "text/plain", "OK");
+    });
+
+    // sets both motors simultaneously — used by the real-time dual sliders
+    server.on("/api/test/motors", HTTP_POST, [this](AsyncWebServerRequest* request) {
+        if (!motorCmdQueue) {
+            request->send(503, "text/plain", "Motor queue not initialized");
+            return;
+        }
+
+        int dutyPitch = request->hasParam("dutyPitch", true)
+            ? request->getParam("dutyPitch", true)->value().toInt() : 0;
+        int dutyYaw   = request->hasParam("dutyYaw",   true)
+            ? request->getParam("dutyYaw",   true)->value().toInt() : 0;
+
+        dutyPitch = constrain(dutyPitch, -MOTOR_PWM_MAX_DUTY, MOTOR_PWM_MAX_DUTY);
+        dutyYaw   = constrain(dutyYaw,   -MOTOR_PWM_MAX_DUTY, MOTOR_PWM_MAX_DUTY);
+
+        MotorCmd cmd;
+        cmd.mode      = MotorCmd::Mode::TEST;
+        cmd.dutyPitch = static_cast<float>(dutyPitch);
+        cmd.dutyYaw   = static_cast<float>(dutyYaw);
 
         xQueueOverwrite(motorCmdQueue, &cmd);
         request->send(200, "text/plain", "OK");
