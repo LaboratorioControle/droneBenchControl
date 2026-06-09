@@ -1,12 +1,7 @@
 #include "IMU.h"
 #include <math.h>
 
-// Accel ±2g → 16384 LSB/g
-// Gyro  ±500°/s → 65.5 LSB/(°/s)
-static constexpr float ACCEL_SCALE = 16384.0f;
-static constexpr float GYRO_SCALE  = 65.5f;
-
-IMU::IMU() : imu(IMU_I2C_ADDR) {}
+IMU::IMU() {}
 
 void IMU::begin() {
     // Pre-check: abort if I2C bus is held low (IMU absent or unpowered)
@@ -21,28 +16,30 @@ void IMU::begin() {
     Wire.begin(IMU_SDA, IMU_SCL);
     Wire.setClock(400000);
     Wire.setTimeOut(10);
-    delay(10);
+    delay(10);  // MPU-6050 needs ~10ms after VDD before I2C is ready
 
-    // Quick probe before initialize()
+    // Quick probe before begin()
     Wire.beginTransmission(IMU_I2C_ADDR);
     if (Wire.endTransmission() != 0) {
-        Serial.println("[IMU] MPU6050 nao encontrado, continuando sem IMU");
+        Serial.println("[IMU] MPU-6050 nao encontrado, continuando sem IMU");
         return;
     }
 
-    imu.initialize();
-    if (!imu.testConnection()) {
-        Serial.println("[IMU] Falha na conexao MPU6050, continuando sem IMU");
+    if (!imu.begin(IMU_I2C_ADDR, &Wire)) {
+        Serial.println("[IMU] Falha ao iniciar MPU-6050, continuando sem IMU");
         return;
     }
 
-    imu.setFullScaleAccelRange(MPU6050_ACCEL_FS_2);   // ±2g
-    imu.setFullScaleGyroRange(MPU6050_GYRO_FS_500);    // ±500°/s
-    imu.setDLPFMode(MPU6050_DLPF_BW_42);               // 42 Hz LPF
+    // Acelerômetro: ±2g  (máxima resolução para ângulos pequenos)
+    // Giroscópio  : ±500°/s
+    // DLPF        : 10 Hz (filtragem de vibração mecânica)
+    imu.setAccelerometerRange(MPU6050_RANGE_2_G);
+    imu.setGyroRange(MPU6050_RANGE_500_DEG);
+    imu.setFilterBandwidth(MPU6050_BAND_10_HZ);
 
     lastReadUs = micros();
     available  = true;
-    Serial.println("[IMU] MPU6050 iniciado");
+    Serial.println("[IMU] MPU-6050 iniciado");
 }
 
 void IMU::attachEncoders(Encoder* pitch, Encoder* yaw) {
@@ -54,15 +51,18 @@ SensorData IMU::read() {
     SensorData data = {};
 
     if (available) {
-        int16_t rawAx, rawAy, rawAz, rawGx, rawGy, rawGz;
-        imu.getMotion6(&rawAx, &rawAy, &rawAz, &rawGx, &rawGy, &rawGz);
+        sensors_event_t accelEvt, gyroEvt, tempEvt;
+        imu.getEvent(&accelEvt, &gyroEvt, &tempEvt);
 
-        data.ax = rawAx / ACCEL_SCALE;
-        data.ay = rawAy / ACCEL_SCALE;
-        data.az = rawAz / ACCEL_SCALE;
-        data.gx = rawGx / GYRO_SCALE;
-        data.gy = rawGy / GYRO_SCALE;
-        data.gz = rawGz / GYRO_SCALE;
+        // Acelerômetro: m/s² → g
+        data.ax = accelEvt.acceleration.x / 9.80665f;
+        data.ay = accelEvt.acceleration.y / 9.80665f;
+        data.az = accelEvt.acceleration.z / 9.80665f;
+
+        // Giroscópio: rad/s → °/s
+        data.gx = gyroEvt.gyro.x * (180.0f / PI);
+        data.gy = gyroEvt.gyro.y * (180.0f / PI);
+        data.gz = gyroEvt.gyro.z * (180.0f / PI);
 
         data.pitch = atan2f(data.ay, data.az) * 180.0f / PI;
 
