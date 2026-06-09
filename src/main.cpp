@@ -54,10 +54,11 @@ void taskTelemetry(void* pvParams) {
 
     for (;;) {
         if (xQueueReceive(p->telemQueue, &data, portMAX_DELAY) == pdPASS) {
+            
             Serial.printf("%lu,%.4f,%.4f,%.4f,%.4f\n",
                 t, data.pitch, data.yaw,
                 data.encPitchDeg, data.encYawDeg);
-
+            
             if (p->web) {
                 char buf[128];
                 snprintf(buf, sizeof(buf),

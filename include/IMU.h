@@ -32,6 +32,7 @@ private:
     bool available = false;
     float yawAccum = 0.0f;
     unsigned long lastReadUs = 0;
+    void scanI2C();
 };
 
 #endif
