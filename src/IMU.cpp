@@ -1,36 +1,10 @@
 #include "IMU.h"
-
 #include <math.h>
 
-IMU::IMU() : imu(Wire, 0) {}
+IMU::IMU() {}
 
-void IMU::scanI2C() {
-    byte error, address;
-    int nDevices = 0;
-    Serial.println("Scanning...");
-    for (address = 1; address < 127; address++) {
-        Wire.beginTransmission(address);
-        error = Wire.endTransmission();
-        if (error == 0) {
-            Serial.print("I2C device found at address 0x");
-            if (address == 16) Serial.print("0");
-            Serial.println(address, HEX);
-            nDevices++;
-        } else if (error == 4) {
-            Serial.print("Unknown error at address 0x");
-            if (address < 16) Serial.print("0");
-            Serial.println(address, HEX);
-        }
-    }
-    if (nDevices == 0)
-        Serial.println("No I2C devices found\n");
-    else
-        Serial.println("done\n");
-    delay(5000);
-}
 void IMU::begin() {
-    // Verifica o estado do barramento antes de inicializar Wire
-    // Evita travar se o IMU estiver ausente ou sem alimentacao
+    // Pre-check: abort if I2C bus is held low (IMU absent or unpowered)
     pinMode(IMU_SDA, INPUT_PULLUP);
     pinMode(IMU_SCL, INPUT_PULLUP);
     delayMicroseconds(200);
@@ -40,61 +14,68 @@ void IMU::begin() {
     }
 
     Wire.begin(IMU_SDA, IMU_SCL);
-    scanI2C();
+    Wire.setClock(400000);
+    Wire.setTimeOut(10);
     delay(10);  // MPU-6050 needs ~10ms after VDD before I2C is ready
 
-    // Probe rapido: so chama imu.begin() se o dispositivo responder
+    // Quick probe before begin()
     Wire.beginTransmission(IMU_I2C_ADDR);
     if (Wire.endTransmission() != 0) {
-        Serial.println("[IMU] ICM42670 nao encontrado, continuando sem IMU");
+        Serial.println("[IMU] MPU-6050 nao encontrado, continuando sem IMU");
         return;
     }
 
-    if (imu.begin() != 0) {
-        Serial.println("[IMU] Falha ao iniciar ICM42670, continuando sem IMU");
+    if (!imu.begin(IMU_I2C_ADDR, &Wire)) {
+        Serial.println("[IMU] Falha ao iniciar MPU-6050, continuando sem IMU");
         return;
     }
 
-    imu.startAccel(100, 2);
-    imu.startGyro(100, 500);
+    // Acelerômetro: ±2g  (máxima resolução para ângulos pequenos)
+    // Giroscópio  : ±500°/s
+    // DLPF        : 10 Hz (filtragem de vibração mecânica)
+    imu.setAccelerometerRange(MPU6050_RANGE_2_G);
+    imu.setGyroRange(MPU6050_RANGE_500_DEG);
+    imu.setFilterBandwidth(MPU6050_BAND_10_HZ);
+
     lastReadUs = micros();
-    available = true;
+    available  = true;
     Serial.println("[IMU] MPU-6050 iniciado");
 }
 
 void IMU::attachEncoders(Encoder* pitch, Encoder* yaw) {
     encPitch = pitch;
-    encYaw = yaw;
+    encYaw   = yaw;
 }
 
 SensorData IMU::read() {
     SensorData data = {};
 
-    if (!available) {
-        data.encPitchDeg = encPitch ? encPitch->getAngleDeg() : 0.0f;
-        data.encYawDeg   = encYaw   ? encYaw->getAngleDeg()   : 0.0f;
-        return data;
-    }
+    if (available) {
+        sensors_event_t accelEvt, gyroEvt, tempEvt;
+        imu.getEvent(&accelEvt, &gyroEvt, &tempEvt);
 
-    inv_imu_sensor_event_t event;
+        // Acelerômetro: m/s² → g
+        data.ax = accelEvt.acceleration.x / 9.80665f;
+        data.ay = accelEvt.acceleration.y / 9.80665f;
+        data.az = accelEvt.acceleration.z / 9.80665f;
 
-    if (imu.getDataFromRegisters(event) == 0) {
-        float ay = event.accel[1] / 1000.0f;
-        float az = event.accel[2] / 1000.0f;
-        float gz = event.gyro[2] / 1000.0f;
+        // Giroscópio: rad/s → °/s
+        data.gx = gyroEvt.gyro.x * (180.0f / PI);
+        data.gy = gyroEvt.gyro.y * (180.0f / PI);
+        data.gz = gyroEvt.gyro.z * (180.0f / PI);
 
-        data.pitch = atan2f(ay, az) * 180.0f / PI;
+        data.pitch = atan2f(data.ay, data.az) * 180.0f / PI;
 
         unsigned long now = micros();
         float dt = (now - lastReadUs) / 1000000.0f;
         lastReadUs = now;
 
-        yawAccum += gz * dt;
+        yawAccum += data.gz * dt;
         data.yaw = yawAccum;
     }
 
     data.encPitchDeg = encPitch ? encPitch->getAngleDeg() : 0.0f;
-    data.encYawDeg = encYaw ? encYaw->getAngleDeg() : 0.0f;
+    data.encYawDeg   = encYaw   ? encYaw->getAngleDeg()   : 0.0f;
 
     return data;
 }
