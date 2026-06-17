@@ -68,7 +68,7 @@ IMU::read() ──► ctrlQueue ──► taskControl ──► Motor::setVeloci
 
 ### Classes principais
 
-- **`IMU`** (`include/IMU.h`): encapsula ICM42670P (I2C) + leitura opcional de dois encoders. Produz `SensorData` com pitch (acelerômetro), yaw (integração giroscópio), e ângulos dos encoders.
+- **`IMU`** (`include/IMU.h`): encapsula MPU-6050 via Adafruit MPU6050 (I2C) + leitura opcional de dois encoders. Produz `SensorData` com pitch (acelerômetro), yaw (integração giroscópio), e ângulos dos encoders.
 - **`Motor`** (`include/Motor.h`): abstração LEDC PWM para driver bidirecional (RPWM/LPWM). `setVelocidade(float)` aceita range `[-MOTOR_PWM_MAX_DUTY, +MOTOR_PWM_MAX_DUTY]`.
 - **`Encoder`** (`include/Encoder.h`): encoder óptico em quadratura via interrupção (`IRAM_ATTR`). 600 PPR × 4 = 2400 pulsos/volta.
 - **`WebManager`** (`include/WebManager.h`): servidor HTTP assíncrono (ESPAsyncWebServer). Expõe `attachMotors()` para controle remoto e `sendTelemetry(json)` para SSE.
@@ -104,4 +104,4 @@ p->motorPitch->setVelocidade(errPitch);
 
 ### Warning conhecido
 
-A lib ICM42670P emite um warning de ambiguidade de overload em `requestFrom()` durante a compilação. É um problema interno da biblioteca, não afeta o firmware, e pode ser ignorado.
+Nenhum warning de biblioteca conhecido para a Adafruit MPU6050.

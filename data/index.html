@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Configuracao PID</title>
+  <title>Drone Bench</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -12,45 +12,115 @@
       background: #0f172a;
       color: #e2e8f0;
       min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    .header {
+      background: #1e293b;
+      border-bottom: 1px solid #0e7490;
+      padding: 14px 20px;
       display: flex;
       align-items: center;
-      justify-content: center;
-      padding: 24px;
+      justify-content: space-between;
     }
 
-    .container { width: 100%; max-width: 480px; }
-
-    h1 {
-      text-align: center;
+    .header-title {
       color: #06b6d4;
-      font-size: 1.4rem;
+      font-size: 1rem;
       font-weight: 700;
-      letter-spacing: 0.08em;
+      letter-spacing: 0.14em;
       text-transform: uppercase;
-      margin-bottom: 32px;
     }
 
+    .conn-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.7rem;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #334155;
+      transition: background 0.4s;
+    }
+    .dot.on { background: #22c55e; }
+
+    /* ── Tab bar ── */
+    .tab-bar {
+      display: flex;
+      background: #1e293b;
+      border-bottom: 1px solid #0e7490;
+    }
+
+    .tab {
+      flex: 1;
+      padding: 12px 6px;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: #64748b;
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      cursor: pointer;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .tab:hover { color: #94a3b8; }
+    .tab.active { color: #06b6d4; border-bottom-color: #06b6d4; }
+
+    /* ── Pages ── */
+    .page { display: none; padding: 16px; max-width: 520px; margin: 0 auto; }
+    .page.active { display: block; }
+
+    /* ── Chart cards ── */
+    .chart-card {
+      background: #1e293b;
+      border: 1px solid #0e7490;
+      border-radius: 12px;
+      padding: 14px 14px 10px;
+      margin-bottom: 14px;
+    }
+
+    .chart-title {
+      color: #67e8f9;
+      font-size: 0.68rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      margin-bottom: 10px;
+    }
+
+    canvas { display: block; border-radius: 4px; width: 100%; }
+
+    /* ── Config fields ── */
     .card {
       background: #1e293b;
       border: 1px solid #0e7490;
       border-radius: 12px;
-      padding: 24px;
-      margin-bottom: 20px;
+      padding: 20px;
+      margin-bottom: 16px;
     }
 
-    .card h2 {
+    .card-title {
       color: #67e8f9;
-      font-size: 0.75rem;
+      font-size: 0.7rem;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.12em;
-      margin-bottom: 20px;
+      margin-bottom: 16px;
     }
 
-    .field { margin-bottom: 16px; }
+    .field { margin-bottom: 14px; }
     .field:last-child { margin-bottom: 0; }
 
-    label {
+    .field label {
       display: block;
       font-size: 0.7rem;
       color: #64748b;
@@ -61,7 +131,7 @@
 
     input[type="number"] {
       width: 100%;
-      padding: 10px 14px;
+      padding: 10px 12px;
       background: #0f172a;
       border: 1px solid #334155;
       border-radius: 8px;
@@ -72,124 +142,497 @@
       -moz-appearance: textfield;
       appearance: textfield;
     }
-
     input[type="number"]::-webkit-outer-spin-button,
     input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; }
-
     input[type="number"]:focus { border-color: #06b6d4; }
 
-    button {
+    /* ── Buttons ── */
+    .btn {
       width: 100%;
-      padding: 14px;
-      background: #06b6d4;
-      color: #0f172a;
+      padding: 13px;
       font-size: 0.875rem;
       font-weight: 700;
       border: none;
       border-radius: 10px;
       cursor: pointer;
-      letter-spacing: 0.1em;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
       transition: background 0.15s;
     }
 
-    button:hover { background: #0891b2; }
-    button:active { background: #0e7490; }
+    .btn-primary { background: #06b6d4; color: #0f172a; }
+    .btn-primary:hover { background: #0891b2; }
+    .btn-primary:active { background: #0e7490; }
 
-    #status {
+    .btn-danger { background: transparent; color: #f87171; border: 1px solid #f87171; }
+    .btn-danger:hover { background: rgba(248,113,113,0.1); }
+
+    .status {
       text-align: center;
-      margin-top: 14px;
+      margin-top: 12px;
       font-size: 0.8rem;
       min-height: 18px;
       color: #06b6d4;
       letter-spacing: 0.04em;
     }
+    .status.error { color: #f87171; }
 
-    #status.error { color: #f87171; }
+    /* ── Mode toggle ── */
+    .btn-mode {
+      display: block;
+      width: 100%;
+      padding: 16px;
+      font-size: 0.875rem;
+      font-weight: 700;
+      border-radius: 10px;
+      cursor: pointer;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      transition: background 0.2s;
+      margin-bottom: 16px;
+    }
+
+    .btn-mode.control {
+      background: rgba(34,197,94,0.08);
+      color: #22c55e;
+      border: 1px solid #22c55e;
+    }
+    .btn-mode.control:hover { background: rgba(34,197,94,0.18); }
+
+    .btn-mode.test {
+      background: rgba(251,146,60,0.12);
+      color: #fb923c;
+      border: 1px solid #fb923c;
+    }
+    .btn-mode.test:hover { background: rgba(251,146,60,0.22); }
+
+    /* ── Sliders ── */
+    .slider-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 6px;
+    }
+
+    .slider-name {
+      font-size: 0.75rem;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .slider-info { display: flex; align-items: center; gap: 10px; }
+
+    .slider-dir {
+      font-size: 0.65rem;
+      color: #64748b;
+      min-width: 68px;
+      text-align: right;
+    }
+
+    .slider-val {
+      font-size: 1rem;
+      font-weight: 700;
+      color: #e2e8f0;
+      font-variant-numeric: tabular-nums;
+      min-width: 36px;
+      text-align: right;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      -webkit-appearance: none;
+      height: 4px;
+      background: #334155;
+      border-radius: 2px;
+      outline: none;
+      margin: 10px 0 4px;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #06b6d4;
+      cursor: pointer;
+    }
+    input[type="range"]:disabled { opacity: 0.35; cursor: not-allowed; }
+    input[type="range"]:disabled::-webkit-slider-thumb { background: #475569; cursor: not-allowed; }
+
+    .range-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.6rem;
+      color: #475569;
+    }
   </style>
 </head>
 <body>
-  <div class="container">
-    <nav style="text-align:center;margin-bottom:24px;">
-      <a href="/test" style="color:#64748b;font-size:0.75rem;text-decoration:none;text-transform:uppercase;letter-spacing:0.1em;">Teste de Motor →</a>
-    </nav>
-    <h1>Config PID</h1>
+
+  <header class="header">
+    <span class="header-title">Drone Bench</span>
+    <span class="conn-badge">
+      <span class="dot" id="dot"></span>
+      <span id="conn-lbl">offline</span>
+    </span>
+  </header>
+
+  <nav class="tab-bar">
+    <button class="tab active" data-tab="telemetry">Telemetria</button>
+    <button class="tab" data-tab="config">LQI</button>
+    <button class="tab" data-tab="test">Teste</button>
+  </nav>
+
+  <!-- ── Telemetry ── -->
+  <section id="tab-telemetry" class="page active">
+    <div class="chart-card">
+      <div class="chart-title">Acelerômetro (g)</div>
+      <canvas id="c-accel" height="140"></canvas>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Vel. Angular (°/s)</div>
+      <canvas id="c-gyro" height="140"></canvas>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Encoders (°)</div>
+      <canvas id="c-enc" height="140"></canvas>
+    </div>
+  </section>
+
+  <!-- ── LQI Config ── -->
+  <section id="tab-config" class="page">
+    <div class="card">
+      <div class="card-title">Ganhos LQI</div>
+      <div class="field"><label>K1</label><input type="number" id="k1" step="any" placeholder="0.000"></div>
+      <div class="field"><label>K2</label><input type="number" id="k2" step="any" placeholder="0.000"></div>
+      <div class="field"><label>K3</label><input type="number" id="k3" step="any" placeholder="0.000"></div>
+      <div class="field"><label>K4</label><input type="number" id="k4" step="any" placeholder="0.000"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Setpoints</div>
+      <div class="field"><label>Pitch (°)</label><input type="number" id="pitch_sp" step="any" placeholder="0.0"></div>
+      <div class="field"><label>Yaw (°)</label><input type="number" id="yaw_sp" step="any" placeholder="0.0"></div>
+    </div>
+    <button class="btn btn-primary" onclick="saveConfig()">Salvar</button>
+    <div class="status" id="cfg-status"></div>
+  </section>
+
+  <!-- ── Test ── -->
+  <section id="tab-test" class="page">
+    <button class="btn-mode control" id="mode-btn" onclick="toggleMode()">
+      Modo: Controle — Ativar Teste
+    </button>
 
     <div class="card">
-      <h2>Controlador 1</h2>
-      <div class="field">
-        <label>Kp</label>
-        <input type="number" id="Kp1" step="any" placeholder="0.000">
+      <div class="card-title">Motor Pitch</div>
+      <div class="slider-header">
+        <span class="slider-name">Duty</span>
+        <span class="slider-info">
+          <span class="slider-dir" id="dir-pitch">Parado</span>
+          <span class="slider-val" id="val-pitch">0</span>
+        </span>
       </div>
-      <div class="field">
-        <label>Ki</label>
-        <input type="number" id="Ki1" step="any" placeholder="0.000">
-      </div>
-      <div class="field">
-        <label>Kd</label>
-        <input type="number" id="Kd1" step="any" placeholder="0.000">
-      </div>
+      <input type="range" class="motor-slider" id="slider-pitch"
+             min="-255" max="255" value="0"
+             oninput="onSlider('pitch', this.value)" disabled>
+      <div class="range-labels"><span>-255</span><span>0</span><span>+255</span></div>
     </div>
 
     <div class="card">
-      <h2>Controlador 2</h2>
-      <div class="field">
-        <label>Kp</label>
-        <input type="number" id="Kp2" step="any" placeholder="0.000">
+      <div class="card-title">Motor Yaw</div>
+      <div class="slider-header">
+        <span class="slider-name">Duty</span>
+        <span class="slider-info">
+          <span class="slider-dir" id="dir-yaw">Parado</span>
+          <span class="slider-val" id="val-yaw">0</span>
+        </span>
       </div>
-      <div class="field">
-        <label>Ki</label>
-        <input type="number" id="Ki2" step="any" placeholder="0.000">
-      </div>
-      <div class="field">
-        <label>Kd</label>
-        <input type="number" id="Kd2" step="any" placeholder="0.000">
-      </div>
+      <input type="range" class="motor-slider" id="slider-yaw"
+             min="-255" max="255" value="0"
+             oninput="onSlider('yaw', this.value)" disabled>
+      <div class="range-labels"><span>-255</span><span>0</span><span>+255</span></div>
     </div>
 
-    <button onclick="save()">Salvar</button>
-    <div id="status"></div>
-  </div>
+    <button class="btn btn-danger" onclick="stopAll()">Parar Tudo</button>
+    <div class="status" id="test-status"></div>
+  </section>
 
   <script>
-    async function load() {
+    // ── Tab switching ──
+    document.querySelectorAll('.tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+      });
+    });
+
+    // ── Rolling chart ──
+    class RollingChart {
+      constructor(canvas, { n = 200, yMin, yMax, autoScale = false, series = [] }) {
+        this.cv        = canvas;
+        this.ctx       = canvas.getContext('2d');
+        this.n         = n;
+        this.yMin      = yMin;
+        this.yMax      = yMax;
+        this.autoScale = autoScale;
+        this.series    = series.map(s => ({ ...s, data: [] }));
+        this._raf      = null;
+        this._draw();
+      }
+
+      push(vals) {
+        this.series.forEach((s, i) => {
+          s.data.push(vals[i] ?? null);
+          if (s.data.length > this.n) s.data.shift();
+        });
+        if (!this._raf) {
+          this._raf = requestAnimationFrame(() => { this._raf = null; this._draw(); });
+        }
+      }
+
+      _draw() {
+        const { ctx, cv, series, n } = this;
+        const W = cv.width, H = cv.height;
+        const PL = 40, PR = 6, PT = 6, PB = 24;
+        const cW = W - PL - PR, cH = H - PT - PB;
+
+        let yMin = this.yMin, yMax = this.yMax;
+        if (this.autoScale) {
+          const all = series.flatMap(s => s.data.filter(v => v !== null));
+          if (all.length) {
+            yMin = Math.min(...all);
+            yMax = Math.max(...all);
+            const pad = (yMax - yMin) * 0.12 || 1;
+            yMin -= pad; yMax += pad;
+          } else { yMin = -1; yMax = 1; }
+        }
+
+        const sy = v => PT + cH - ((v - yMin) / (yMax - yMin)) * cH;
+        const sx = i => PL + (i / (n - 1)) * cW;
+
+        // background
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(0, 0, W, H);
+
+        // grid
+        const TICKS = 4;
+        ctx.lineWidth = 1;
+        for (let i = 0; i <= TICKS; i++) {
+          const y   = PT + (i / TICKS) * cH;
+          const val = yMax - (i / TICKS) * (yMax - yMin);
+          ctx.strokeStyle = '#1e3a5f';
+          ctx.beginPath(); ctx.moveTo(PL, y); ctx.lineTo(PL + cW, y); ctx.stroke();
+          ctx.fillStyle = '#475569';
+          ctx.font = '9px monospace';
+          ctx.textAlign = 'right';
+          ctx.fillText(val.toFixed(1), PL - 4, y + 3.5);
+        }
+
+        // zero line
+        if (yMin < 0 && yMax > 0) {
+          const zy = sy(0);
+          ctx.strokeStyle = '#334155';
+          ctx.setLineDash([3, 3]);
+          ctx.beginPath(); ctx.moveTo(PL, zy); ctx.lineTo(PL + cW, zy); ctx.stroke();
+          ctx.setLineDash([]);
+        }
+
+        // series lines
+        series.forEach(s => {
+          ctx.strokeStyle = s.color;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          let first = true;
+          s.data.forEach((v, i) => {
+            if (v === null) { first = true; return; }
+            const x = sx(i), y = sy(v);
+            if (first) { ctx.moveTo(x, y); first = false; } else ctx.lineTo(x, y);
+          });
+          ctx.stroke();
+        });
+
+        // legend
+        let lx = PL;
+        ctx.font = '10px sans-serif';
+        series.forEach(s => {
+          ctx.fillStyle = s.color;
+          ctx.fillRect(lx, H - 14, 14, 3);
+          ctx.fillStyle = '#94a3b8';
+          ctx.textAlign = 'left';
+          ctx.fillText(s.label, lx + 17, H - 8);
+          lx += ctx.measureText(s.label).width + 34;
+        });
+      }
+    }
+
+    // ── Init charts ──
+    // Canvas internal width matches the card content area
+    const CHART_W = Math.min(480, window.innerWidth - 60);
+    const CHART_H = 140;
+
+    function mkChart(id, opts) {
+      const c = document.getElementById(id);
+      c.width  = CHART_W;
+      c.height = CHART_H;
+      return new RollingChart(c, opts);
+    }
+
+    const chartAccel = mkChart('c-accel', {
+      n: 200, yMin: -2.2, yMax: 2.2,
+      series: [
+        { label: 'ax', color: '#f87171' },
+        { label: 'ay', color: '#4ade80' },
+        { label: 'az', color: '#60a5fa' },
+      ]
+    });
+
+    const chartGyro = mkChart('c-gyro', {
+      n: 200, yMin: -520, yMax: 520,
+      series: [
+        { label: 'gx', color: '#f87171' },
+        { label: 'gy', color: '#4ade80' },
+        { label: 'gz', color: '#60a5fa' },
+      ]
+    });
+
+    const chartEnc = mkChart('c-enc', {
+      n: 200, autoScale: true,
+      series: [
+        { label: 'Enc Pitch', color: '#06b6d4' },
+        { label: 'Enc Yaw',   color: '#fb923c' },
+      ]
+    });
+
+    // ── SSE ──
+    const dot     = document.getElementById('dot');
+    const connLbl = document.getElementById('conn-lbl');
+
+    const src = new EventSource('/api/events');
+    src.addEventListener('telemetry', e => {
+      try {
+        const d = JSON.parse(e.data);
+        chartAccel.push([d.ax, d.ay, d.az]);
+        chartGyro.push([d.gx, d.gy, d.gz]);
+        chartEnc.push([d.encPitch, d.encYaw]);
+      } catch {}
+    });
+    src.onopen  = () => { dot.classList.add('on');    connLbl.textContent = 'online';  };
+    src.onerror = () => { dot.classList.remove('on'); connLbl.textContent = 'offline'; };
+
+    // ── LQI Config ──
+    async function loadConfig() {
       try {
         const res = await fetch('/api/params');
         if (!res.ok) return;
-        const data = await res.json();
-        const c1 = data[0], c2 = data[1];
-        document.getElementById('Kp1').value = c1.Kp1;
-        document.getElementById('Ki1').value = c1.Ki1;
-        document.getElementById('Kd1').value = c1.Kd1;
-        document.getElementById('Kp2').value = c2.Kp2;
-        document.getElementById('Ki2').value = c2.Ki2;
-        document.getElementById('Kd2').value = c2.Kd2;
-      } catch (e) {
-        setStatus('Erro ao carregar parametros.', true);
-      }
+        const d = await res.json();
+        ['k1','k2','k3','k4','pitch_sp','yaw_sp'].forEach(k => {
+          const el = document.getElementById(k);
+          if (el && d[k] !== undefined) el.value = d[k];
+        });
+      } catch {}
     }
 
-    async function save() {
-      const fields = ['Kp1', 'Ki1', 'Kd1', 'Kp2', 'Ki2', 'Kd2'];
+    async function saveConfig() {
+      const keys = ['k1','k2','k3','k4','pitch_sp','yaw_sp'];
       const body = new URLSearchParams();
-      for (const id of fields) body.append(id, document.getElementById(id).value);
-
-      setStatus('Salvando...');
+      keys.forEach(k => body.append(k, document.getElementById(k).value));
+      setCfgStatus('Salvando...');
       try {
         const res = await fetch('/api/params', { method: 'POST', body });
-        res.ok ? setStatus('Salvo com sucesso.') : setStatus('Erro ao salvar.', true);
-      } catch (e) {
-        setStatus('Sem conexao com o dispositivo.', true);
+        res.ok ? setCfgStatus('Salvo com sucesso.') : setCfgStatus('Erro ao salvar.', true);
+      } catch { setCfgStatus('Sem conexao.', true); }
+    }
+
+    function setCfgStatus(msg, err = false) {
+      const el = document.getElementById('cfg-status');
+      el.textContent = msg;
+      el.className = 'status' + (err ? ' error' : '');
+    }
+
+    // ── Test / mode toggle ──
+    let testMode   = false;
+    let motorTimer = null;
+    let lastSend   = 0;
+
+    function toggleMode() {
+      if (testMode) {
+        fetch('/api/test/control', { method: 'POST' })
+          .catch(() => {})
+          .finally(() => setTestMode(false));
+      } else {
+        setTestMode(true);
+        sendMotors();
       }
     }
 
-    function setStatus(msg, isError = false) {
-      const el = document.getElementById('status');
-      el.textContent = msg;
-      el.className = isError ? 'error' : '';
+    function setTestMode(active) {
+      testMode = active;
+      const btn     = document.getElementById('mode-btn');
+      const sliders = document.querySelectorAll('.motor-slider');
+      if (active) {
+        btn.textContent = 'Modo: Teste — Ativar Controle';
+        btn.className   = 'btn-mode test';
+        sliders.forEach(s => s.disabled = false);
+      } else {
+        btn.textContent = 'Modo: Controle — Ativar Teste';
+        btn.className   = 'btn-mode control';
+        sliders.forEach(s => s.disabled = true);
+      }
     }
 
-    load();
+    function dirLabel(v) {
+      return v > 0 ? 'Horário' : v < 0 ? 'Anti-Horário' : 'Parado';
+    }
+
+    function onSlider(motor, val) {
+      val = parseInt(val);
+      document.getElementById('val-' + motor).textContent = val;
+      document.getElementById('dir-' + motor).textContent = dirLabel(val);
+      if (!testMode) return;
+      const now = Date.now();
+      clearTimeout(motorTimer);
+      if (now - lastSend >= 40) {
+        lastSend = now; sendMotors();
+      } else {
+        motorTimer = setTimeout(() => { lastSend = Date.now(); sendMotors(); }, 40 - (now - lastSend));
+      }
+    }
+
+    async function sendMotors() {
+      const dutyPitch = document.getElementById('slider-pitch').value;
+      const dutyYaw   = document.getElementById('slider-yaw').value;
+      try {
+        await fetch('/api/test/motors', {
+          method: 'POST',
+          body: new URLSearchParams({ dutyPitch, dutyYaw })
+        });
+      } catch {}
+    }
+
+    async function stopAll() {
+      ['pitch','yaw'].forEach(m => {
+        document.getElementById('slider-' + m).value = 0;
+        document.getElementById('val-' + m).textContent = '0';
+        document.getElementById('dir-' + m).textContent = 'Parado';
+      });
+      const st = document.getElementById('test-status');
+      try {
+        await fetch('/api/test/stop', { method: 'POST' });
+        st.textContent = 'Motores parados.';
+        st.className   = 'status';
+      } catch {
+        st.textContent = 'Sem conexao.';
+        st.className   = 'status error';
+      }
+    }
+
+    window.addEventListener('pagehide', () => {
+      if (testMode) navigator.sendBeacon('/api/test/stop');
+    });
+
+    loadConfig();
   </script>
 </body>
 </html>
