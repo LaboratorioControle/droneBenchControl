@@ -14,7 +14,7 @@ void IMU::begin() {
     }
 
     Wire.begin(IMU_SDA, IMU_SCL);
-    Wire.setClock(400000);
+    Wire.setClock(100000);
     Wire.setTimeOut(10);
     delay(10);  // MPU-6050 needs ~10ms after VDD before I2C is ready
 
