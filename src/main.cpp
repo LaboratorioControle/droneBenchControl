@@ -125,6 +125,7 @@ void taskControl(void* pvParams) {
 void setup() {
     delay(5000);
     Serial.begin(115200);
+    Serial.println("[FW] v-OTA-test");
 
     static Encoder encPitch(PIN_ENC_PITCH_A, PIN_ENC_PITCH_B);
     static Encoder encYaw(PIN_ENC_YAW_A,     PIN_ENC_YAW_B);
@@ -149,6 +150,16 @@ void setup() {
     static WebManager webMan(AP_SSID, AP_PASSWORD);
     webMan.attachMotorQueue(motorCmdQueue);
     webMan.begin();
+
+    // Verifica conteudo real do LittleFS apos OTA
+    File f = LittleFS.open("/index.html", "r");
+    if (f) {
+        String line = f.readStringUntil('\n');  // primeira linha
+        f.close();
+        Serial.printf("[FS] index.html linha 1: %s\n", line.c_str());
+    } else {
+        Serial.println("[FS] Falha ao abrir index.html");
+    }
 
     static TaskParams sensorParams  = {ctrlQueue, telemQueue, nullptr,       &sensor, nullptr,      nullptr,    nullptr};
     static TaskParams controlParams = {ctrlQueue, nullptr,    motorCmdQueue, nullptr, &motorPitch,  &motorYaw,  nullptr};

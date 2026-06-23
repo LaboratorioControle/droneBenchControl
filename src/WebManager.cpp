@@ -1,5 +1,6 @@
 #include "WebManager.h"
 #include "constants.h"
+#include <ElegantOTA.h>
 
 WebManager::WebManager(const char* apSsid, const char* apPassword)
     : server(80), events("/api/events") {
@@ -132,6 +133,19 @@ void WebManager::begin() {
         client->send("{}", "telemetry", millis(), 1000);
     });
     server.addHandler(&events);
+
+    // OTA via AP — acessível em 192.168.4.1/update
+    ElegantOTA.begin(&server);
+    ElegantOTA.onStart([this]() {
+        if (motorCmdQueue) {
+            MotorCmd stop;
+            xQueueOverwrite(motorCmdQueue, &stop);
+        }
+        Serial.println("[OTA] Iniciando atualizacao — motores parados");
+    });
+    ElegantOTA.onEnd([](bool success) {
+        Serial.printf("[OTA] %s — reiniciando\n", success ? "Sucesso" : "Falhou");
+    });
 
     server.begin();
     Serial.println("Servidor Web iniciado na porta 80.");
