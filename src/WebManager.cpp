@@ -1,158 +1,144 @@
 #include "WebManager.h"
 #include "constants.h"
+#include <ArduinoJson.h>
 
 WebManager::WebManager(const char* apSsid, const char* apPassword)
     : server(80), events("/api/events") {
-    this->ssid     = apSsid;
-    this->password = apPassword;
+    ssid     = apSsid;
+    password = apPassword;
 }
 
-void WebManager::attachMotorQueue(QueueHandle_t queue) { motorCmdQueue = queue; }
-void WebManager::attachCalibQueue(QueueHandle_t queue) { calibCmdQueue = queue; }
+void WebManager::attachMotorQueue(QueueHandle_t q)    { motorCmdQueue   = q; }
+void WebManager::attachCalibQueue(QueueHandle_t q)    { calibCmdQueue   = q; }
+void WebManager::attachCtrlParamsQueue(QueueHandle_t q){ ctrlParamsQueue = q; }
+void WebManager::sendTelemetry(const char* json)       { events.send(json, "telemetry", millis()); }
+void WebManager::sendCalibStatus(const char* json)     { events.send(json, "calib",     millis()); }
 
-void WebManager::sendTelemetry(const char* json) {
-    events.send(json, "telemetry", millis());
+// Helper: lê campo float do body do POST (form-urlencoded)
+static float pf(AsyncWebServerRequest* req, const char* key, float def = 0.0f) {
+    return req->hasParam(key, true) ? req->getParam(key, true)->value().toFloat() : def;
 }
-
-void WebManager::sendCalibStatus(const char* json) {
-    events.send(json, "calib", millis());
+static int pi(AsyncWebServerRequest* req, const char* key, int def = 0) {
+    return req->hasParam(key, true) ? req->getParam(key, true)->value().toInt() : def;
 }
 
 void WebManager::begin() {
-    if (!LittleFS.begin(true)) {
-        Serial.println("Erro ao montar o LittleFS!");
-        return;
-    }
+    if (!LittleFS.begin(true)) { Serial.println("LittleFS falhou!"); return; }
     Serial.println("LittleFS montado.");
 
     WiFi.softAP(ssid, password);
-    Serial.print("AP IP: ");
-    Serial.println(WiFi.softAPIP());
+    Serial.print("AP IP: "); Serial.println(WiFi.softAPIP());
 
-    // ── Páginas ──────────────────────────────────────────────────────────
+    // ── Página principal ────────────────────────────────────────────────
     server.on("/", HTTP_GET, [](AsyncWebServerRequest* req) {
         req->send(LittleFS, "/index.html", "text/html");
     });
 
-    // ── LQI params ───────────────────────────────────────────────────────
+    // ── GET parâmetros de controle ──────────────────────────────────────
     server.on("/api/params", HTTP_GET, [](AsyncWebServerRequest* req) {
-        req->send(LittleFS, "/parameters.json", "application/json");
+        if (LittleFS.exists("/parameters.json"))
+            req->send(LittleFS, "/parameters.json", "application/json");
+        else
+            req->send(200, "application/json", "{\"mode\":1}");
     });
 
-    server.on("/api/params", HTTP_POST, [](AsyncWebServerRequest* req) {
-        auto get = [&](const char* key) -> String {
-            return req->hasParam(key, true) ? req->getParam(key, true)->value() : "0";
-        };
-        String json =
-            "{\n"
-            "    \"k1\": "       + get("k1")       + ",\n"
-            "    \"k2\": "       + get("k2")       + ",\n"
-            "    \"k3\": "       + get("k3")       + ",\n"
-            "    \"k4\": "       + get("k4")       + ",\n"
-            "    \"pitch_sp\": " + get("pitch_sp") + ",\n"
-            "    \"yaw_sp\": "   + get("yaw_sp")   + "\n"
-            "}";
+    // ── POST parâmetros de controle ─────────────────────────────────────
+    // Recebe todos os campos do formulário, salva JSON e envia para taskControl.
+    // Referências chegam em graus e são convertidas para rad aqui.
+    server.on("/api/params", HTTP_POST, [this](AsyncWebServerRequest* req) {
+        ControlParams cp;
+        cp.mode = static_cast<ControlMode>(pi(req, "mode", 1));
+
+        // Referências: web envia graus → controlador usa rad
+        cp.refPitch = pf(req, "refPitch") * (PI / 180.0f);
+        cp.refYaw   = pf(req, "refYaw")   * (PI / 180.0f);
+
+        cp.Ki1 = pf(req, "Ki1");
+        cp.Ki2 = pf(req, "Ki2");
+
+        cp.Kx1 = pf(req, "Kx1"); cp.Kx2 = pf(req, "Kx2");
+        cp.Kx3 = pf(req, "Kx3"); cp.Kx4 = pf(req, "Kx4");
+        cp.Kx5 = pf(req, "Kx5"); cp.Kx6 = pf(req, "Kx6");
+        cp.Kx7 = pf(req, "Kx7"); cp.Kx8 = pf(req, "Kx8");
+
+        cp.openLoopPitch = pf(req, "openLoopPitch");
+        cp.openLoopYaw   = pf(req, "openLoopYaw");
+
+        // Persiste — salva os valores originais em graus para exibir de volta
+        JsonDocument doc;
+        doc["mode"]     = (int)cp.mode;
+        doc["refPitch"] = pf(req, "refPitch");   // graus (valor original)
+        doc["refYaw"]   = pf(req, "refYaw");
+        doc["Ki1"]  = cp.Ki1;  doc["Ki2"]  = cp.Ki2;
+        doc["Kx1"]  = cp.Kx1; doc["Kx2"]  = cp.Kx2;
+        doc["Kx3"]  = cp.Kx3; doc["Kx4"]  = cp.Kx4;
+        doc["Kx5"]  = cp.Kx5; doc["Kx6"]  = cp.Kx6;
+        doc["Kx7"]  = cp.Kx7; doc["Kx8"]  = cp.Kx8;
+        doc["openLoopPitch"] = cp.openLoopPitch;
+        doc["openLoopYaw"]   = cp.openLoopYaw;
+
         File f = LittleFS.open("/parameters.json", "w");
-        if (!f) { req->send(500, "text/plain", "Erro ao abrir arquivo"); return; }
-        f.print(json);
-        f.close();
+        if (f) { serializeJson(doc, f); f.close(); }
+
+        // Envia para taskControl (sem bloquear)
+        if (ctrlParamsQueue) xQueueOverwrite(ctrlParamsQueue, &cp);
+
         req->send(200, "text/plain", "OK");
     });
 
-    // ── Calibração: GET status ────────────────────────────────────────────
+    // ── Calibração ──────────────────────────────────────────────────────
     server.on("/api/calibration", HTTP_GET, [](AsyncWebServerRequest* req) {
-        if (LittleFS.exists("/calibration.json")) {
+        if (LittleFS.exists("/calibration.json"))
             req->send(LittleFS, "/calibration.json", "application/json");
-        } else {
-            req->send(200, "application/json", "{\"imuCalibrated\":false,\"motorCalibrated\":false}");
-        }
+        else
+            req->send(200, "application/json",
+                      "{\"imuCalibrated\":false,\"motorCalibrated\":false}");
     });
 
-    // ── Calibração: disparar rotinas via POST ─────────────────────────────
-    server.on("/api/calibrate/imu", HTTP_POST, [this](AsyncWebServerRequest* req) {
-        if (calibCmdQueue) {
-            CalibCmd cmd; cmd.type = CalibCmd::Type::IMU;
-            xQueueOverwrite(calibCmdQueue, &cmd);
-            req->send(200, "text/plain", "IMU calibration started");
-        } else {
-            req->send(503, "text/plain", "Calib queue not initialized");
-        }
-    });
-
-    server.on("/api/calibrate/motors", HTTP_POST, [this](AsyncWebServerRequest* req) {
-        if (calibCmdQueue) {
-            CalibCmd cmd; cmd.type = CalibCmd::Type::MOTORS;
-            xQueueOverwrite(calibCmdQueue, &cmd);
-            req->send(200, "text/plain", "Motor calibration started");
-        } else {
-            req->send(503, "text/plain", "Calib queue not initialized");
-        }
-    });
-
-    server.on("/api/calibrate/encoders", HTTP_POST, [this](AsyncWebServerRequest* req) {
-        if (calibCmdQueue) {
-            CalibCmd cmd; cmd.type = CalibCmd::Type::ENCODERS;
-            xQueueOverwrite(calibCmdQueue, &cmd);
-            req->send(200, "text/plain", "Encoder zeroing started");
-        } else {
-            req->send(503, "text/plain", "Calib queue not initialized");
-        }
-    });
-
-    server.on("/api/calibrate/reset", HTTP_POST, [this](AsyncWebServerRequest* req) {
-        if (calibCmdQueue) {
-            CalibCmd cmd; cmd.type = CalibCmd::Type::RESET;
-            xQueueOverwrite(calibCmdQueue, &cmd);
-            req->send(200, "text/plain", "Calibration reset");
-        } else {
-            req->send(503, "text/plain", "Calib queue not initialized");
-        }
-    });
-
-    // ── Teste de motor ────────────────────────────────────────────────────
-    server.on("/api/test/motor", HTTP_POST, [this](AsyncWebServerRequest* req) {
-        if (!motorCmdQueue) { req->send(503, "text/plain", "Queue not ready"); return; }
-        int duty  = req->hasParam("duty",  true) ? req->getParam("duty",  true)->value().toInt() : 0;
-        int motor = req->hasParam("motor", true) ? req->getParam("motor", true)->value().toInt() : 0;
-        duty = constrain(duty, -MOTOR_PWM_MAX_DUTY, MOTOR_PWM_MAX_DUTY);
-        MotorCmd cmd;
-        cmd.mode      = MotorCmd::Mode::TEST;
-        cmd.dutyPitch = (motor == 0) ? (float)duty : 0.0f;
-        cmd.dutyYaw   = (motor == 1) ? (float)duty : 0.0f;
-        xQueueOverwrite(motorCmdQueue, &cmd);
+    auto calibPost = [this](AsyncWebServerRequest* req, CalibCmd::Type t) {
+        if (!calibCmdQueue) { req->send(503, "text/plain", "Queue not ready"); return; }
+        CalibCmd cmd; cmd.type = t;
+        xQueueOverwrite(calibCmdQueue, &cmd);
         req->send(200, "text/plain", "OK");
-    });
+    };
 
+    server.on("/api/calibrate/imu",      HTTP_POST, [=](AsyncWebServerRequest* r){ calibPost(r, CalibCmd::Type::IMU);      });
+    server.on("/api/calibrate/motors",   HTTP_POST, [=](AsyncWebServerRequest* r){ calibPost(r, CalibCmd::Type::MOTORS);   });
+    server.on("/api/calibrate/encoders", HTTP_POST, [=](AsyncWebServerRequest* r){ calibPost(r, CalibCmd::Type::ENCODERS); });
+    server.on("/api/calibrate/reset",    HTTP_POST, [=](AsyncWebServerRequest* r){ calibPost(r, CalibCmd::Type::RESET);    });
+
+    // ── Teste direto de motores ─────────────────────────────────────────
     server.on("/api/test/motors", HTTP_POST, [this](AsyncWebServerRequest* req) {
         if (!motorCmdQueue) { req->send(503, "text/plain", "Queue not ready"); return; }
-        int dp = req->hasParam("dutyPitch", true) ? req->getParam("dutyPitch", true)->value().toInt() : 0;
-        int dy = req->hasParam("dutyYaw",   true) ? req->getParam("dutyYaw",   true)->value().toInt() : 0;
-        dp = constrain(dp, -MOTOR_PWM_MAX_DUTY, MOTOR_PWM_MAX_DUTY);
-        dy = constrain(dy, -MOTOR_PWM_MAX_DUTY, MOTOR_PWM_MAX_DUTY);
-        MotorCmd cmd;
-        cmd.mode      = MotorCmd::Mode::TEST;
-        cmd.dutyPitch = (float)dp;
-        cmd.dutyYaw   = (float)dy;
+        int dp = constrain(pi(req, "dutyPitch"), -MOTOR_PWM_MAX_DUTY, MOTOR_PWM_MAX_DUTY);
+        int dy = constrain(pi(req, "dutyYaw"),   -MOTOR_PWM_MAX_DUTY, MOTOR_PWM_MAX_DUTY);
+        MotorCmd cmd; cmd.mode = MotorCmd::Mode::TEST;
+        cmd.dutyPitch = (float)dp; cmd.dutyYaw = (float)dy;
         xQueueOverwrite(motorCmdQueue, &cmd);
         req->send(200, "text/plain", "OK");
     });
 
     server.on("/api/test/stop", HTTP_POST, [this](AsyncWebServerRequest* req) {
-        if (motorCmdQueue) { MotorCmd cmd; cmd.mode = MotorCmd::Mode::TEST; xQueueOverwrite(motorCmdQueue, &cmd); }
+        if (motorCmdQueue) {
+            MotorCmd cmd; cmd.mode = MotorCmd::Mode::TEST;
+            xQueueOverwrite(motorCmdQueue, &cmd);
+        }
         req->send(200, "text/plain", "OK");
     });
 
     server.on("/api/test/control", HTTP_POST, [this](AsyncWebServerRequest* req) {
-        if (motorCmdQueue) { MotorCmd cmd; cmd.mode = MotorCmd::Mode::CONTROL; xQueueOverwrite(motorCmdQueue, &cmd); }
+        if (motorCmdQueue) {
+            MotorCmd cmd; cmd.mode = MotorCmd::Mode::CONTROL;
+            xQueueOverwrite(motorCmdQueue, &cmd);
+        }
         req->send(200, "text/plain", "OK");
     });
 
-    // ── SSE ──────────────────────────────────────────────────────────────
+    // ── SSE ─────────────────────────────────────────────────────────────
     events.onConnect([](AsyncEventSourceClient* client) {
         client->send("{}", "telemetry", millis(), 1000);
     });
     server.addHandler(&events);
-
     server.begin();
     Serial.println("Web server iniciado na porta 80.");
 }

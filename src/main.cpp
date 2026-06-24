@@ -3,7 +3,8 @@
 #include <freertos/task.h>
 #include <freertos/queue.h>
 #include <LittleFS.h>
-#include <esp_system.h>   // esp_register_shutdown_handler
+#include <esp_system.h>
+#include <math.h>
 
 #include "constants.h"
 #include "env.h"
@@ -14,18 +15,23 @@
 #include "Calibration.h"
 #include "WebManager.h"
 
+// ─── Telemetria estendida ─────────────────────────────────────────────────────
+struct TelemData {
+    SensorData sensor;
+    float uPitch    = 0.0f;   // sinal de controle pitch (antes do clamp)
+    float uYaw      = 0.0f;   // sinal de controle yaw
+    ControlMode mode = ControlMode::DOF1;
+};
+
 // ─── Queues globais ───────────────────────────────────────────────────────────
-static QueueHandle_t ctrlQueue;
-static QueueHandle_t telemQueue;
-static QueueHandle_t motorCmdQueue;
-static QueueHandle_t calibCmdQueue;
+static QueueHandle_t sensorQueue;      // SensorData:  taskSensor → taskControl
+static QueueHandle_t telemQueue;       // TelemData:   taskControl → taskTelemetry
+static QueueHandle_t motorCmdQueue;    // MotorCmd:    web → taskControl  (depth 1)
+static QueueHandle_t calibCmdQueue;    // CalibCmd:    web → taskCalib    (depth 1)
+static QueueHandle_t ctrlParamsQueue;  // ControlParams: web → taskControl (depth 1)
 
 // ─── Parâmetros das tasks ─────────────────────────────────────────────────────
 struct TaskParams {
-    QueueHandle_t ctrlQueue;
-    QueueHandle_t telemQueue;
-    QueueHandle_t motorCmdQueue;
-    QueueHandle_t calibCmdQueue;
     IMU*          sensor;
     Motor*        motorPitch;
     Motor*        motorYaw;
@@ -34,16 +40,9 @@ struct TaskParams {
     WebManager*   web;
     CalibData*    calib;
 };
-
-// Ponteiro global acessível pelo shutdown handler (função C, sem contexto)
 static TaskParams* gTp = nullptr;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Shutdown handler — chamado pelo ESP32 antes de desligar/reiniciar
-//
-// Persiste a posição atual dos encoders no LittleFS para que o próximo
-// boot os restaure via setOffsetDeg().
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Shutdown handler ─────────────────────────────────────────────────────────
 static void onShutdown() {
     if (!gTp) return;
     gTp->calib->encPitchDeg = gTp->encPitch->getAngleDeg();
@@ -52,82 +51,185 @@ static void onShutdown() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Core 0 — taskSensor
+// Core 0 — taskSensor  (50 Hz)
 // ─────────────────────────────────────────────────────────────────────────────
-void taskSensor(void* pvParams) {
-    auto* p = static_cast<TaskParams*>(pvParams);
-    SensorData data;
+void taskSensor(void* pv) {
+    auto* p = static_cast<TaskParams*>(pv);
     for (;;) {
-        data = p->sensor->read();
-        xQueueSend(p->ctrlQueue,  &data, portMAX_DELAY);
-        xQueueSend(p->telemQueue, &data, 0);
+        SensorData d = p->sensor->read();
+        xQueueSend(sensorQueue, &d, portMAX_DELAY);
         vTaskDelay(pdMS_TO_TICKS(1000 / FREQ_SENSOR_HZ));
     }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Core 0 — taskTelemetry
+// Core 0 — taskTelemetry  (50 Hz)
 // ─────────────────────────────────────────────────────────────────────────────
-void taskTelemetry(void* pvParams) {
-    auto* p = static_cast<TaskParams*>(pvParams);
-    SensorData data;
+void taskTelemetry(void* pv) {
+    auto* p = static_cast<TaskParams*>(pv);
+    TelemData td;
+
+    // Aguarda primeiro pacote para emitir header correto
+    xQueueReceive(telemQueue, &td, portMAX_DELAY);
+    Serial.println("t_ms,mode,pitch_deg,yaw_deg,pitchDot,yawDot,"
+                   "encPitch_deg,encYaw_deg,uPitch,uYaw");
+
     uint32_t t = 0;
-
-    xQueueReceive(p->telemQueue, &data, portMAX_DELAY);
-    Serial.println("t_ms,ax_g,ay_g,az_g,gx_dps,gy_dps,gz_dps,pitch_deg,yaw_deg,enc_pitch_deg,enc_yaw_deg");
-
     for (;;) {
-        if (xQueueReceive(p->telemQueue, &data, portMAX_DELAY) == pdPASS) {
-            Serial.printf("%lu,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f\n",
-                t,
-                data.ax, data.ay, data.az,
-                data.gx, data.gy, data.gz,
-                data.pitch, data.yaw,
-                data.encPitchDeg, data.encYawDeg);
+        if (xQueueReceive(telemQueue, &td, portMAX_DELAY) != pdPASS) continue;
 
-            if (p->web) {
-                char buf[220];
-                snprintf(buf, sizeof(buf),
-                    "{\"ax\":%.3f,\"ay\":%.3f,\"az\":%.3f,"
-                    "\"gx\":%.2f,\"gy\":%.2f,\"gz\":%.2f,"
-                    "\"pitch\":%.2f,\"yaw\":%.2f,"
-                    "\"encPitch\":%.2f,\"encYaw\":%.2f}",
-                    data.ax, data.ay, data.az,
-                    data.gx, data.gy, data.gz,
-                    data.pitch, data.yaw,
-                    data.encPitchDeg, data.encYawDeg);
-                p->web->sendTelemetry(buf);
-            }
-            t += (1000 / FREQ_TELEMETRY_HZ);
+        Serial.printf("%lu,%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f\n",
+            t, (int)td.mode,
+            td.sensor.pitch, td.sensor.yaw,
+            td.sensor.gx,    td.sensor.gz,      // θ̇ ≈ gx, Ω̇ ≈ gz (ajustar por eixo)
+            td.sensor.encPitchDeg, td.sensor.encYawDeg,
+            td.uPitch, td.uYaw);
+
+        if (p->web) {
+            char buf[280];
+            snprintf(buf, sizeof(buf),
+                "{\"mode\":%d,"
+                "\"pitch\":%.3f,\"yaw\":%.3f,"
+                "\"pitchDot\":%.3f,\"yawDot\":%.3f,"
+                "\"encPitch\":%.2f,\"encYaw\":%.2f,"
+                "\"ax\":%.3f,\"ay\":%.3f,\"az\":%.3f,"
+                "\"uPitch\":%.2f,\"uYaw\":%.2f}",
+                (int)td.mode,
+                td.sensor.pitch, td.sensor.yaw,
+                td.sensor.gx,    td.sensor.gz,
+                td.sensor.encPitchDeg, td.sensor.encYawDeg,
+                td.sensor.ax, td.sensor.ay, td.sensor.az,
+                td.uPitch, td.uYaw);
+            p->web->sendTelemetry(buf);
         }
+        t += (1000 / FREQ_TELEMETRY_HZ);
     }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Core 1 — taskControl
+// Core 1 — taskControl  (100 Hz)
+// Todas as grandezas angulares em radianos / rad·s⁻¹ internamente.
 // ─────────────────────────────────────────────────────────────────────────────
-void taskControl(void* pvParams) {
-    auto* p = static_cast<TaskParams*>(pvParams);
-    TickType_t lastWake = xTaskGetTickCount();
-    SensorData last = {};
-    SensorData data;
-    MotorCmd   lastCmd;
+void taskControl(void* pv) {
+    auto* p = static_cast<TaskParams*>(pv);
 
-    xQueueReceive(p->ctrlQueue, &last, portMAX_DELAY);
+    TickType_t   lastWake = xTaskGetTickCount();
+    SensorData   last     = {};
+    MotorCmd     motorCmd;
+    ControlParams cp;       // começa com defaults do construtor (DOF1, tudo zero)
+
+    // Estado do integrador
+    float intPitch = 0.0f;   // ∫(rp − θ)dt
+    float intYaw   = 0.0f;   // ∫(ry − Ω)dt
+
+    // Para derivada numérica de θ e Ω via encoder
+    float prevThetaEnc = 0.0f;
+    float prevOmegaEnc = 0.0f;
+    unsigned long prevUs = micros();
+
+    // Aguarda primeiro dado de sensor
+    xQueueReceive(sensorQueue, &last, portMAX_DELAY);
+    prevThetaEnc = last.encPitchDeg * (PI / 180.0f);
+    prevOmegaEnc = last.encYawDeg   * (PI / 180.0f);
+    prevUs = micros();
 
     for (;;) {
-        if (xQueueReceive(p->ctrlQueue, &data, 0) == pdPASS) last = data;
+        // Atualiza leitura de sensor
+        SensorData newSensor;
+        if (xQueueReceive(sensorQueue, &newSensor, 0) == pdPASS) last = newSensor;
 
-        MotorCmd newCmd;
-        if (xQueueReceive(p->motorCmdQueue, &newCmd, 0) == pdPASS) lastCmd = newCmd;
+        // Atualiza modo de acionamento direto (calibração/teste)
+        MotorCmd newMotorCmd;
+        if (xQueueReceive(motorCmdQueue, &newMotorCmd, 0) == pdPASS) motorCmd = newMotorCmd;
 
-        if (lastCmd.mode == MotorCmd::Mode::TEST) {
-            p->motorPitch->setVelocidade(lastCmd.dutyPitch);
-            p->motorYaw->setVelocidade(lastCmd.dutyYaw);
-        } else {
-            // TODO: substituir por LQI
-            p->motorPitch->setVelocidade(0.0f - last.pitch);
-            p->motorYaw->setVelocidade(0.0f - last.yaw);
+        // Atualiza parâmetros de controle vindos da web
+        ControlParams newCp;
+        if (xQueueReceive(ctrlParamsQueue, &newCp, 0) == pdPASS) {
+            // Reset integradores ao mudar parâmetros
+            if (newCp.mode != cp.mode ||
+                newCp.refPitch != cp.refPitch ||
+                newCp.refYaw   != cp.refYaw) {
+                intPitch = 0.0f;
+                intYaw   = 0.0f;
+            }
+            cp = newCp;
+            Serial.printf("[Ctrl] Modo=%d refP=%.3f refY=%.3f\n",
+                          (int)cp.mode, cp.refPitch, cp.refYaw);
+        }
+
+        // dt real
+        unsigned long nowUs = micros();
+        float dt = (nowUs - prevUs) / 1e6f;
+        prevUs = nowUs;
+        if (dt <= 0.0f || dt > 0.1f) dt = 1.0f / FREQ_CONTROL_HZ;
+
+        // Grandezas angulares em rad / rad·s⁻¹
+        float theta    = last.encPitchDeg * (PI / 180.0f);   // θ  — encoder pitch
+        float omega    = last.encYawDeg   * (PI / 180.0f);   // Ω  — encoder yaw
+        float thetaDot = (theta - prevThetaEnc) / dt;         // θ̇
+        float omegaDot = (omega - prevOmegaEnc) / dt;         // Ω̇
+        prevThetaEnc = theta;
+        prevOmegaEnc = omega;
+
+        float uPitch = 0.0f, uYaw = 0.0f;
+
+        // ── Modo TEST (calibração ou teste manual) ────────────────────────
+        if (motorCmd.mode == MotorCmd::Mode::TEST) {
+            p->motorPitch->setVelocidade(motorCmd.dutyPitch);
+            p->motorYaw->setVelocidade(motorCmd.dutyYaw);
+            // Não integra durante TEST
+            goto send_telem;
+        }
+
+        switch (cp.mode) {
+
+            // ── MALHA ABERTA ──────────────────────────────────────────────
+            case ControlMode::OPEN_LOOP:
+                uPitch = cp.openLoopPitch;
+                uYaw   = cp.openLoopYaw;
+                intPitch = 0.0f;
+                intYaw   = 0.0f;
+                break;
+
+            // ── 1-DOF ─────────────────────────────────────────────────────
+            // U = Ki1·∫(rp − θ)dt − [Kx1 Kx2]·[θ, θ̇]ᵀ
+            // Vy = 0
+            case ControlMode::DOF1:
+                intPitch += (cp.refPitch - theta) * dt;
+                uPitch = cp.Ki1 * intPitch
+                         - (cp.Kx1 * theta + cp.Kx2 * thetaDot);
+                uYaw   = 0.0f;
+                intYaw = 0.0f;
+                break;
+
+            // ── 2-DOF ─────────────────────────────────────────────────────
+            // [Vp]   [Ki1  0 ]   [∫(πp−θ)]   [Kx1 Kx2 Kx3 Kx4]   [θ ]
+            // [  ] = [       ] · [       ] − [                  ] · [Ω ]
+            // [Vy]   [0  Ki2 ]   [∫(πy−Ω)]   [Kx5 Kx6 Kx7 Kx8]   [θ̇]
+            //                                                        [Ω̇]
+            case ControlMode::DOF2:
+                intPitch += (cp.refPitch - theta) * dt;
+                intYaw   += (cp.refYaw   - omega)  * dt;
+                uPitch = cp.Ki1 * intPitch
+                         - (cp.Kx1*theta + cp.Kx2*omega + cp.Kx3*thetaDot + cp.Kx4*omegaDot);
+                uYaw   = cp.Ki2 * intYaw
+                         - (cp.Kx5*theta + cp.Kx6*omega + cp.Kx7*thetaDot + cp.Kx8*omegaDot);
+                break;
+        }
+
+        // Clamp e aplica
+        p->motorPitch->setVelocidade(
+            constrain(uPitch, -(float)MOTOR_PWM_MAX_DUTY, (float)MOTOR_PWM_MAX_DUTY));
+        p->motorYaw->setVelocidade(
+            constrain(uYaw,   -(float)MOTOR_PWM_MAX_DUTY, (float)MOTOR_PWM_MAX_DUTY));
+
+        send_telem: {
+            TelemData td;
+            td.sensor = last;
+            td.uPitch = uPitch;
+            td.uYaw   = uYaw;
+            td.mode   = cp.mode;
+            xQueueSend(telemQueue, &td, 0);
         }
 
         vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(1000 / FREQ_CONTROL_HZ));
@@ -137,38 +239,36 @@ void taskControl(void* pvParams) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Core 0 — taskCalibration
 // ─────────────────────────────────────────────────────────────────────────────
-void taskCalibration(void* pvParams) {
-    auto* p = static_cast<TaskParams*>(pvParams);
+void taskCalibration(void* pv) {
+    auto* p = static_cast<TaskParams*>(pv);
     CalibCmd cmd;
 
-    auto sendStatus = [&](const char* msg, bool done, bool error = false) {
+    auto sendStatus = [&](const char* msg, bool done, bool err = false) {
         if (!p->web) return;
-        char buf[128];
+        char buf[140];
         snprintf(buf, sizeof(buf),
             "{\"msg\":\"%s\",\"done\":%s,\"error\":%s}",
-            msg, done ? "true" : "false", error ? "true" : "false");
+            msg, done ? "true":"false", err ? "true":"false");
         p->web->sendCalibStatus(buf);
         Serial.printf("[Calib] %s\n", msg);
     };
 
     for (;;) {
-        xQueueReceive(p->calibCmdQueue, &cmd, portMAX_DELAY);
+        xQueueReceive(calibCmdQueue, &cmd, portMAX_DELAY);
 
-        // Para motores antes de qualquer rotina
+        // Para motores durante calibração
         MotorCmd pause; pause.mode = MotorCmd::Mode::TEST;
-        xQueueOverwrite(p->motorCmdQueue, &pause);
+        xQueueOverwrite(motorCmdQueue, &pause);
         vTaskDelay(pdMS_TO_TICKS(200));
 
         switch (cmd.type) {
-
             case CalibCmd::Type::RESET:
                 LittleFS.remove("/calibration.json");
                 *p->calib = CalibData{};
-                p->sensor->setCalibration(0, 0, 0, 0, 0, 0);
-                p->motorPitch->setDeadband(0, 0);
-                p->motorYaw->setDeadband(0, 0);
-                p->encPitch->reset();
-                p->encYaw->reset();
+                p->sensor->setCalibration(0,0,0,0,0,0);
+                p->motorPitch->setDeadband(0,0);
+                p->motorYaw->setDeadband(0,0);
+                p->encPitch->reset(); p->encYaw->reset();
                 sendStatus("Calibracao resetada.", true);
                 break;
 
@@ -179,7 +279,7 @@ void taskCalibration(void* pvParams) {
                 break;
 
             case CalibCmd::Type::IMU:
-                sendStatus("Calibrando IMU... mantenha o sensor parado.", false);
+                sendStatus("Calibrando IMU... mantenha sensor parado.", false);
                 Calibration::calibrateIMU(*p->sensor, *p->calib);
                 p->sensor->setCalibration(
                     p->calib->imuOffsetAx, p->calib->imuOffsetAy, p->calib->imuOffsetAz,
@@ -189,17 +289,14 @@ void taskCalibration(void* pvParams) {
                 break;
 
             case CalibCmd::Type::MOTORS:
-                sendStatus("Calibrando motores... braco deve estar livre.", false);
+                sendStatus("Calibrando motores... braco livre.", false);
                 Calibration::calibrateMotors(
                     *p->motorPitch, *p->motorYaw,
-                    *p->encPitch,   *p->encYaw,
-                    *p->calib);
+                    *p->encPitch,   *p->encYaw, *p->calib);
                 p->motorPitch->setDeadband(
-                    p->calib->motorPitchDeadbandFwd,
-                    p->calib->motorPitchDeadbandRev);
+                    p->calib->motorPitchDeadbandFwd, p->calib->motorPitchDeadbandRev);
                 p->motorYaw->setDeadband(
-                    p->calib->motorYawDeadbandFwd,
-                    p->calib->motorYawDeadbandRev);
+                    p->calib->motorYawDeadbandFwd,   p->calib->motorYawDeadbandRev);
                 Calibration::save(*p->calib);
                 sendStatus("Motores calibrados.", true);
                 break;
@@ -207,9 +304,8 @@ void taskCalibration(void* pvParams) {
             default: break;
         }
 
-        // Retorna ao controle
         MotorCmd resume; resume.mode = MotorCmd::Mode::CONTROL;
-        xQueueOverwrite(p->motorCmdQueue, &resume);
+        xQueueOverwrite(motorCmdQueue, &resume);
     }
 }
 
@@ -220,14 +316,11 @@ void setup() {
     delay(3000);
     Serial.begin(115200);
 
-    if (!LittleFS.begin(true)) {
-        Serial.println("[Setup] ERRO: LittleFS falhou.");
-    }
+    if (!LittleFS.begin(true)) Serial.println("[Setup] ERRO: LittleFS falhou.");
 
     static Encoder encPitch(PIN_ENC_PITCH_A, PIN_ENC_PITCH_B);
     static Encoder encYaw  (PIN_ENC_YAW_A,   PIN_ENC_YAW_B);
-    encPitch.begin();
-    encYaw.begin();
+    encPitch.begin(); encYaw.begin();
 
     static IMU sensor;
     sensor.begin();
@@ -237,50 +330,38 @@ void setup() {
                             LEDC_CH_PITCH_RPWM,   LEDC_CH_PITCH_LPWM);
     static Motor motorYaw  (PIN_MOTOR_YAW_RPWM,   PIN_MOTOR_YAW_LPWM,
                             LEDC_CH_YAW_RPWM,     LEDC_CH_YAW_LPWM);
-    motorPitch.begin();
-    motorYaw.begin();
+    motorPitch.begin(); motorYaw.begin();
 
-    // Carrega calibração persistida
     static CalibData calib = Calibration::load();
-
-    // Aplica offsets do IMU
     sensor.setCalibration(
         calib.imuOffsetAx, calib.imuOffsetAy, calib.imuOffsetAz,
         calib.imuOffsetGx, calib.imuOffsetGy, calib.imuOffsetGz);
-
-    // Aplica dead zones dos motores
     motorPitch.setDeadband(calib.motorPitchDeadbandFwd, calib.motorPitchDeadbandRev);
     motorYaw.setDeadband  (calib.motorYawDeadbandFwd,   calib.motorYawDeadbandRev);
 
-    // Restaura posição dos encoders do último desligamento controlado
-    // Se o drone foi movido com energia desligada, o operador deve
-    // usar "Zerar Encoders" na interface web para corrigir.
     if (calib.encPitchDeg != 0.0f || calib.encYawDeg != 0.0f) {
         encPitch.setOffsetDeg(calib.encPitchDeg);
         encYaw.setOffsetDeg(calib.encYawDeg);
-        Serial.printf("[Setup] Posicao dos encoders restaurada: pitch=%.2f° yaw=%.2f°\n",
+        Serial.printf("[Setup] Encoders restaurados: pitch=%.2f° yaw=%.2f°\n",
                       calib.encPitchDeg, calib.encYawDeg);
     }
 
-    // Queues
-    ctrlQueue      = xQueueCreate(5,  sizeof(SensorData));
-    telemQueue     = xQueueCreate(10, sizeof(SensorData));
-    motorCmdQueue  = xQueueCreate(1,  sizeof(MotorCmd));
-    calibCmdQueue  = xQueueCreate(1,  sizeof(CalibCmd));
+    sensorQueue     = xQueueCreate(5,  sizeof(SensorData));
+    telemQueue      = xQueueCreate(10, sizeof(TelemData));
+    motorCmdQueue   = xQueueCreate(1,  sizeof(MotorCmd));
+    calibCmdQueue   = xQueueCreate(1,  sizeof(CalibCmd));
+    ctrlParamsQueue = xQueueCreate(1,  sizeof(ControlParams));
 
     static WebManager webMan(AP_SSID, AP_PASSWORD);
     webMan.attachMotorQueue(motorCmdQueue);
     webMan.attachCalibQueue(calibCmdQueue);
+    webMan.attachCtrlParamsQueue(ctrlParamsQueue);
     webMan.begin();
 
     static TaskParams tp = {
-        ctrlQueue, telemQueue, motorCmdQueue, calibCmdQueue,
-        &sensor, &motorPitch, &motorYaw, &encPitch, &encYaw,
-        &webMan, &calib
+        &sensor, &motorPitch, &motorYaw, &encPitch, &encYaw, &webMan, &calib
     };
     gTp = &tp;
-
-    // Registra o shutdown handler do ESP-IDF — chamado em esp_restart()
     esp_register_shutdown_handler(onShutdown);
 
     xTaskCreatePinnedToCore(taskSensor,      "sensor",    TASK_STACK_SIZE,     &tp, 1, NULL, 0);
