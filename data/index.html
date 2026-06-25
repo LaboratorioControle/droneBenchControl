@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Drone Bench [v-OTA-test]</title>
+  <title>Drone Bench </title>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
@@ -192,8 +192,22 @@
     <canvas id="c-u" height="130"></canvas>
   </div>
   <div class="chart-card">
-    <div class="chart-title">Acelerômetro (g)</div>
+    <div class="chart-title">Acelerômetro (m/s²)</div>
     <canvas id="c-accel" height="110"></canvas>
+  </div>
+  <div class="chart-card">
+    <div class="chart-header">
+      <span class="chart-title">Vel. Pitch — Encoder (°/s)</span>
+      <span style="font-size:1rem;font-weight:700;color:#e2e8f0" id="cur-vel-pitch">—</span>
+    </div>
+    <canvas id="c-vel-pitch" height="130"></canvas>
+  </div>
+  <div class="chart-card">
+    <div class="chart-header">
+      <span class="chart-title">Vel. Yaw — Encoder (°/s)</span>
+      <span style="font-size:1rem;font-weight:700;color:#e2e8f0" id="cur-vel-yaw">—</span>
+    </div>
+    <canvas id="c-vel-yaw" height="130"></canvas>
   </div>
 </section>
 
@@ -534,9 +548,13 @@ class RChart {
 const cAngles=new RChart('c-angles',{n:200,yMin:-180,yMax:180,series:[{label:'Pitch',color:'#06b6d4'},{label:'Yaw',color:'#fb923c'}]});
 const cEnc   =new RChart('c-enc',   {n:200,auto:true,series:[{label:'Enc Pitch',color:'#4ade80'},{label:'Enc Yaw',color:'#f87171'}]});
 const cU     =new RChart('c-u',     {n:200,yMin:-255,yMax:255,series:[{label:'uPitch',color:'#06b6d4'},{label:'uYaw',color:'#fb923c'}]});
-const cAccel =new RChart('c-accel', {n:200,h:110,yMin:-2.2,yMax:2.2,series:[{label:'ax',color:'#f87171'},{label:'ay',color:'#4ade80'},{label:'az',color:'#60a5fa'}]});
+const cAccel  =new RChart('c-accel',    {n:200,h:110,yMin:-2.2,yMax:2.2,series:[{label:'ax',color:'#f87171'},{label:'ay',color:'#4ade80'},{label:'az',color:'#60a5fa'}]});
+const cVelPitch=new RChart('c-vel-pitch',{n:200,auto:true,series:[{label:'ω Pitch (°/s)',color:'#06b6d4'}]});
+const cVelYaw  =new RChart('c-vel-yaw',  {n:200,auto:true,series:[{label:'ω Yaw (°/s)', color:'#fb923c'}]});
 
 const MNAME = ['Malha Aberta','1-DOF Pitch','2-DOF'];
+const DT_S = 1.0 / 50;
+let prevEncPitch=null, prevEncYaw=null;
 
 // ── SSE ───────────────────────────────────────────────────────────────────────
 const dot=document.getElementById('dot'),connLbl=document.getElementById('conn-lbl');
@@ -549,6 +567,13 @@ src.addEventListener('telemetry',e=>{
     cEnc.push([d.encPitch, d.encYaw]);
     cU.push([d.uPitch, d.uYaw]);
     cAccel.push([d.ax, d.ay, d.az]);
+    if(prevEncPitch!==null){
+      const vp=(d.encPitch-prevEncPitch)/DT_S, vy=(d.encYaw-prevEncYaw)/DT_S;
+      cVelPitch.push([vp]); cVelYaw.push([vy]);
+      document.getElementById('cur-vel-pitch').textContent=vp.toFixed(1)+'°/s';
+      document.getElementById('cur-vel-yaw').textContent=vy.toFixed(1)+'°/s';
+    }
+    prevEncPitch=d.encPitch; prevEncYaw=d.encYaw;
     const fmt=(v,dec=2)=>v!=null?parseFloat(v).toFixed(dec):'—';
     document.getElementById('t-up').textContent=fmt(d.uPitch,1);
     document.getElementById('t-uy').textContent=fmt(d.uYaw,1);

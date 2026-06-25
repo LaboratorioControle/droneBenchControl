@@ -59,10 +59,10 @@ SensorData IMU::readInternal(bool applyOffset) {
     sensors_event_t accelEvt, gyroEvt, tempEvt;
     imu.getEvent(&accelEvt, &gyroEvt, &tempEvt);
 
-    // Acelerômetro: m/s² → g
-    data.ax = accelEvt.acceleration.x / 9.80665f;
-    data.ay = accelEvt.acceleration.y / 9.80665f;
-    data.az = accelEvt.acceleration.z / 9.80665f;
+    // Acelerômetro: m/s²
+    data.ax = accelEvt.acceleration.x;
+    data.ay = accelEvt.acceleration.y;
+    data.az = accelEvt.acceleration.z;
 
     // Giroscópio: rad/s → °/s
     data.gx = gyroEvt.gyro.x * (180.0f / PI);

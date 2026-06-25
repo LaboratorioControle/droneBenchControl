@@ -29,7 +29,8 @@ private:
     volatile int32_t pulseCount;
     float    offsetDeg = 0.0f;
 
-    static void IRAM_ATTR isr(void* arg);
+    static void IRAM_ATTR isrA(void* arg);
+    static void IRAM_ATTR isrB(void* arg);
 };
 
 #endif  // ENCODER_H

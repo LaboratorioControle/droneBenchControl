@@ -6,11 +6,20 @@ Encoder::Encoder(uint8_t pinA, uint8_t pinB)
 void Encoder::begin() {
     pinMode(pinA, INPUT_PULLUP);
     pinMode(pinB, INPUT_PULLUP);
-    attachInterruptArg(digitalPinToInterrupt(pinA), isr, this, CHANGE);
-    attachInterruptArg(digitalPinToInterrupt(pinB), isr, this, CHANGE);
+    attachInterruptArg(digitalPinToInterrupt(pinA), isrA, this, CHANGE);
+    attachInterruptArg(digitalPinToInterrupt(pinB), isrB, this, CHANGE);
 }
 
-void IRAM_ATTR Encoder::isr(void* arg) {
+// Pino A mudou: direção CW quando a != b
+void IRAM_ATTR Encoder::isrA(void* arg) {
+    Encoder* enc = static_cast<Encoder*>(arg);
+    bool a = digitalRead(enc->pinA);
+    bool b = digitalRead(enc->pinB);
+    enc->pulseCount += (a != b) ? 1 : -1;
+}
+
+// Pino B mudou: direção CW quando a == b
+void IRAM_ATTR Encoder::isrB(void* arg) {
     Encoder* enc = static_cast<Encoder*>(arg);
     bool a = digitalRead(enc->pinA);
     bool b = digitalRead(enc->pinB);
