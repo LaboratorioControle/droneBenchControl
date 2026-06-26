@@ -13,9 +13,9 @@
 #define PIN_ENC_PITCH_A         4
 #define PIN_ENC_PITCH_B         5
 
-// --- Encoder Yaw ---
-#define PIN_ENC_YAW_A           6
-#define PIN_ENC_YAW_B           7
+// --- Encoder Yaw --- (A↔B invertidos para corrigir sentido do encoder)
+#define PIN_ENC_YAW_A           7
+#define PIN_ENC_YAW_B           6
 
 // 600PPR x4 (CHANGE em A e B) = 2400 pulsos/volta
 #define ENCODER_PPR_X4          2400
