@@ -170,6 +170,9 @@
     .btn-control { background: #1e293b; color: #22c55e; border: 1px solid #22c55e; margin-top: 10px; width: 100%; }
     .btn-control:hover { background: #22c55e1a; }
 
+    .btn-reset { background: #1e293b; color: #f59e0b; border: 1px solid #f59e0b; margin-top: 10px; width: 100%; }
+    .btn-reset:hover { background: #f59e0b1a; }
+
     #status {
       text-align: center;
       margin-top: 14px;
@@ -256,6 +259,7 @@
         <button class="btn-stop" onclick="stop()">Parar</button>
       </div>
       <button class="btn-control" onclick="returnToControl()">Retornar ao Controle</button>
+      <button class="btn-reset" onclick="resetESP()">Reiniciar ESP</button>
       <div id="status"></div>
     </div>
 
@@ -297,12 +301,16 @@
     }
 
     async function send() {
-      const duty  = document.getElementById('slider').value;
-      const motor = selectedMotor();
-      const body  = new URLSearchParams({ motor, duty });
+      const duty  = parseInt(document.getElementById('slider').value);
+      const motor = parseInt(selectedMotor());
+      const body  = new URLSearchParams(
+        motor === 0
+          ? { dutyPitch: duty, dutyYaw: 0 }
+          : { dutyPitch: 0,    dutyYaw: duty }
+      );
       setStatus('Enviando...');
       try {
-        const res = await fetch('/api/test/motor', { method: 'POST', body });
+        const res = await fetch('/api/test/motors', { method: 'POST', body });
         res.ok ? setStatus('OK') : setStatus('Erro ao enviar.', true);
       } catch {
         setStatus('Sem conexao.', true);
@@ -315,6 +323,16 @@
       try {
         await fetch('/api/test/stop', { method: 'POST' });
         setStatus('Motor parado.');
+      } catch {
+        setStatus('Sem conexao.', true);
+      }
+    }
+
+    async function resetESP() {
+      if (!confirm('Reiniciar o ESP32?')) return;
+      try {
+        await fetch('/api/reset', { method: 'POST' });
+        setStatus('Reiniciando... reconecte em alguns segundos.');
       } catch {
         setStatus('Sem conexao.', true);
       }
