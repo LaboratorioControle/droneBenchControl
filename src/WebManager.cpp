@@ -135,6 +135,12 @@ void WebManager::begin() {
         req->send(200, "text/plain", "OK");
     });
 
+    server.on("/api/reset", HTTP_POST, [](AsyncWebServerRequest* req) {
+        req->send(200, "text/plain", "Reiniciando...");
+        delay(300);
+        ESP.restart();
+    });
+
     // ── SSE ─────────────────────────────────────────────────────────────
     events.onConnect([](AsyncEventSourceClient* client) {
         client->send("{}", "telemetry", millis(), 1000);

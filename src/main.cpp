@@ -166,8 +166,8 @@ void taskControl(void* pv) {
             intPitch = 0.0f;
             intYaw   = 0.0f;
             cp = newCp;
-            Serial.printf("[Ctrl] Modo=%d refP=%.3f refY=%.3f\n",
-                          (int)cp.mode, cp.refPitch, cp.refYaw);
+            Serial.printf("[Ctrl] Modo=%d refP=%.4f Ki1=%.4f Kx1=%.4f Kx2=%.4f\n",
+                          (int)cp.mode, cp.refPitch, cp.Ki1, cp.Kx1, cp.Kx2);
         }
 
         // dt para integração (período real do tick de controle)
@@ -210,14 +210,21 @@ void taskControl(void* pv) {
 
             // ── 1-DOF ─────────────────────────────────────────────────────
             // U = Ki1·∫(rp − θ)dt − [Kx1 Kx2]·[θ, θ̇]ᵀ
-            // Vy = 0
-            case ControlMode::DOF1:
-                intPitch += (cp.refPitch - theta) * dt;
+            // Ambos os motores acionam o eixo de pitch (sinais opostos).
+            // Anti-windup: congela integrador quando saturado e erro não reverte.
+            case ControlMode::DOF1: {
+                float ePitch = cp.refPitch - theta;
+                float uEst   = cp.Ki1 * intPitch
+                               - (cp.Kx1 * theta + cp.Kx2 * thetaDot);
+                bool saturated = fabsf(uEst) >= (float)MOTOR_PWM_MAX_DUTY;
+                if (!saturated || (ePitch * uEst < 0.0f))
+                    intPitch += ePitch * dt;
                 uPitch = cp.Ki1 * intPitch
                          - (cp.Kx1 * theta + cp.Kx2 * thetaDot);
-                uYaw   = 0.0f;
+                uYaw   = -uPitch;
                 intYaw = 0.0f;
                 break;
+            }
 
             // ── 2-DOF ─────────────────────────────────────────────────────
             // [Vp]   [Ki1  0 ]   [∫(πp−θ)]   [Kx1 Kx2 Kx3 Kx4]   [θ ]
