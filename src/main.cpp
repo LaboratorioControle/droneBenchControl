@@ -166,8 +166,8 @@ void taskControl(void* pv) {
             intPitch = 0.0f;
             intYaw   = 0.0f;
             cp = newCp;
-            Serial.printf("[Ctrl] Modo=%d refP=%.3f refY=%.3f\n",
-                          (int)cp.mode, cp.refPitch, cp.refYaw);
+            Serial.printf("[Ctrl] Modo=%d refP=%.4f Ki1=%.4f Kx1=%.4f Kx2=%.4f\n",
+                          (int)cp.mode, cp.refPitch, cp.Ki1, cp.Kx1, cp.Kx2);
         }
 
         // dt para integração (período real do tick de controle)
@@ -210,28 +210,45 @@ void taskControl(void* pv) {
 
             // ── 1-DOF ─────────────────────────────────────────────────────
             // U = Ki1·∫(rp − θ)dt − [Kx1 Kx2]·[θ, θ̇]ᵀ
-            // Vy = 0
-            case ControlMode::DOF1:
-                intPitch += (cp.refPitch - theta) * dt;
+            // Ambos os motores acionam o eixo de pitch (sinais opostos).
+            // Anti-windup: congela integrador quando saturado e erro não reverte.
+            case ControlMode::DOF1: {
+                float ePitch = cp.refPitch - theta;
+                float uEst   = cp.Ki1 * intPitch
+                               - (cp.Kx1 * theta + cp.Kx2 * thetaDot);
+                bool saturated = fabsf(uEst) >= (float)MOTOR_PWM_MAX_DUTY;
+                if (!saturated || (ePitch * uEst < 0.0f))
+                    intPitch += ePitch * dt;
                 uPitch = cp.Ki1 * intPitch
                          - (cp.Kx1 * theta + cp.Kx2 * thetaDot);
-                uYaw   = 0.0f;
+                uYaw   = -uPitch;
                 intYaw = 0.0f;
                 break;
+            }
 
             // ── 2-DOF ─────────────────────────────────────────────────────
-            // [Vp]   [Ki1  0 ]   [∫(πp−θ)]   [Kx1 Kx2 Kx3 Kx4]   [θ ]
-            // [  ] = [       ] · [       ] − [                  ] · [Ω ]
-            // [Vy]   [0  Ki2 ]   [∫(πy−Ω)]   [Kx5 Kx6 Kx7 Kx8]   [θ̇]
+            // [uP]   [Ki1  Ki3] [∫(rp−θ)dt]   [Kx1 Kx2 Kx3 Kx4] [θ ]
+            // [  ] = [        ]·[          ] − [                 ]·[Ω ]
+            // [uY]   [Ki4  Ki2] [∫(ry−Ω)dt]   [Kx5 Kx6 Kx7 Kx8] [θ̇]
             //                                                        [Ω̇]
-            case ControlMode::DOF2:
-                intPitch += (cp.refPitch - theta) * dt;
-                intYaw   += (cp.refYaw   - omega)  * dt;
-                uPitch = cp.Ki1 * intPitch
+            // Anti-windup independente por canal.
+            case ControlMode::DOF2: {
+                float ePitch = cp.refPitch - theta;
+                float eYaw   = cp.refYaw   - omega;
+                float uPEst  = (cp.Ki1*intPitch + cp.Ki3*intYaw)
+                               - (cp.Kx1*theta + cp.Kx2*omega + cp.Kx3*thetaDot + cp.Kx4*omegaDot);
+                float uYEst  = (cp.Ki4*intPitch + cp.Ki2*intYaw)
+                               - (cp.Kx5*theta + cp.Kx6*omega + cp.Kx7*thetaDot + cp.Kx8*omegaDot);
+                bool satP = fabsf(uPEst) >= (float)MOTOR_PWM_MAX_DUTY;
+                bool satY = fabsf(uYEst) >= (float)MOTOR_PWM_MAX_DUTY;
+                if (!satP || (ePitch * uPEst < 0.0f)) intPitch += ePitch * dt;
+                if (!satY || (eYaw   * uYEst < 0.0f)) intYaw   += eYaw   * dt;
+                uPitch = (cp.Ki1*intPitch + cp.Ki3*intYaw)
                          - (cp.Kx1*theta + cp.Kx2*omega + cp.Kx3*thetaDot + cp.Kx4*omegaDot);
-                uYaw   = cp.Ki2 * intYaw
+                uYaw   = (cp.Ki4*intPitch + cp.Ki2*intYaw)
                          - (cp.Kx5*theta + cp.Kx6*omega + cp.Kx7*thetaDot + cp.Kx8*omegaDot);
                 break;
+            }
         }
 
         // Clamp e aplica
@@ -340,7 +357,6 @@ void taskCalibration(void* pv) {
 void setup() {
     delay(3000);
     Serial.begin(115200);
-    Serial.println("[FW] v-OTA-test");
 
     if (!LittleFS.begin(true)) Serial.println("[Setup] ERRO: LittleFS falhou.");
 
