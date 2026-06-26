@@ -300,14 +300,26 @@
         </div>
       </div>
 
-      <div class="section-label">Ganhos integradores  Ki = [Ki1  Ki2]</div>
+      <div class="section-label">Ganhos integradores Ki (2×2)</div>
+      <div class="matrix-row-label">uPitch ← [Ki1·∫pitch + Ki3·∫yaw]</div>
       <div class="field-group cols2">
         <div class="field">
-          <label>Ki1<span>linha Pitch</span></label>
+          <label>Ki1<span>∫pitch → uPitch</span></label>
           <input type="number" id="Ki1_2dof" step="any" placeholder="0.0">
         </div>
         <div class="field">
-          <label>Ki2<span>linha Yaw</span></label>
+          <label>Ki3<span>∫yaw → uPitch</span></label>
+          <input type="number" id="Ki3_2dof" step="any" placeholder="0.0">
+        </div>
+      </div>
+      <div class="matrix-row-label">uYaw ← [Ki4·∫pitch + Ki2·∫yaw]</div>
+      <div class="field-group cols2">
+        <div class="field">
+          <label>Ki4<span>∫pitch → uYaw</span></label>
+          <input type="number" id="Ki4_2dof" step="any" placeholder="0.0">
+        </div>
+        <div class="field">
+          <label>Ki2<span>∫yaw → uYaw</span></label>
           <input type="number" id="Ki2_2dof" step="any" placeholder="0.0">
         </div>
       </div>
@@ -332,6 +344,34 @@
 
   <button class="btn btn-primary" onclick="saveParams()">Salvar e Aplicar</button>
   <div class="status" id="cfg-status"></div>
+
+  <div class="card" style="margin-top:4px">
+    <div class="card-title">Ao Vivo</div>
+    <div class="tele-grid">
+      <div class="tele-item hi"><div class="tele-label">Enc Pitch</div><div class="tele-val" id="cl-ep">—</div></div>
+      <div class="tele-item hi"><div class="tele-label">Enc Yaw</div><div class="tele-val" id="cl-ey">—</div></div>
+      <div class="tele-item"><div class="tele-label">ω Pitch (°/s)</div><div class="tele-val" id="cl-vp">—</div></div>
+      <div class="tele-item"><div class="tele-label">ω Yaw (°/s)</div><div class="tele-val" id="cl-vy">—</div></div>
+      <div class="tele-item"><div class="tele-label">u Pitch (PWM)</div><div class="tele-val" id="cl-up">—</div></div>
+      <div class="tele-item"><div class="tele-label">u Yaw (PWM)</div><div class="tele-val" id="cl-uy">—</div></div>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center">
+    <button class="btn btn-primary" id="ctrl-rec-btn" onclick="ctrlToggleRec()" style="flex:0 0 auto">● Gravar</button>
+    <button class="btn btn-warning" id="ctrl-dl"    onclick="ctrlDownload()" style="display:none;flex:0 0 auto">⬇ Baixar CSV</button>
+    <button class="btn btn-danger"  id="ctrl-clear" onclick="ctrlClearRec()" style="display:none;flex:0 0 auto">Limpar</button>
+    <span style="font-size:.75rem;color:#64748b" id="ctrl-rec-status"></span>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-title">Pitch — Enc vs Setpoint (°)</div>
+    <canvas id="c-ctrl-pitch" height="130"></canvas>
+  </div>
+  <div class="chart-card">
+    <div class="chart-title">Yaw — Enc vs Setpoint (°)</div>
+    <canvas id="c-ctrl-yaw" height="130"></canvas>
+  </div>
 </section>
 
 <!-- ══════════════ CALIBRAÇÃO ══════════════════════════════════════════════ -->
@@ -446,6 +486,7 @@
     <div class="range-labels"><span>-255</span><span>0</span><span>+255</span></div>
   </div>
   <button class="btn btn-danger" onclick="stopAll()">Parar Tudo</button>
+  <button class="btn btn-warning" onclick="resetESP()" style="margin-top:10px">Reiniciar ESP</button>
   <div class="status" id="test-status"></div>
 </section>
 
@@ -464,7 +505,7 @@
         Teste 3 / 6<span class="sub">Pitch + · 5 s</span>
       </div>
       <div class="ol-opt" data-id="4" onclick="olSelect(this)">
-        Teste 4 / 5<span class="sub">Pitch + · 5 s</span>
+        Teste 4 / 5<span class="sub">Yaw + · 5 s</span>
       </div>
     </div>
   </div>
@@ -477,7 +518,10 @@
     </div>
     <div class="prog-wrap"><div class="prog-bar" id="ol-bar"></div></div>
     <button class="btn btn-primary" id="ol-start" onclick="olRun()" style="margin-top:14px">Iniciar Teste</button>
-    <button class="btn btn-warning" id="ol-dl" style="display:none;margin-top:10px" onclick="olDownload()">⬇ Baixar CSV</button>
+    <div id="ol-actions" style="display:flex;gap:8px;margin-top:10px;align-items:stretch">
+      <button class="btn btn-warning" id="ol-dl" style="display:none;flex:1;margin-top:0" onclick="olDownload()">⬇ Baixar CSV</button>
+      <button class="btn btn-danger"  id="ol-clear" style="display:none;flex:1;margin-top:0" onclick="olClear()">Limpar CSV</button>
+    </div>
     <div class="status" id="ol-status"></div>
   </div>
 
@@ -489,6 +533,53 @@
       <div class="tele-item"><div class="tele-label">Enc Pitch</div><div class="tele-val" id="ol-ep">—</div></div>
       <div class="tele-item"><div class="tele-label">Enc Yaw</div><div class="tele-val" id="ol-ey">—</div></div>
     </div>
+  </div>
+
+  <div class="card" style="margin-top:4px">
+    <div class="card-title">Busca de Equilíbrio</div>
+    <div class="section-label">Pitch — motor no ponto mais baixo</div>
+    <div class="field-group cols2">
+      <div class="field"><label>Duty inicial<span>PWM</span></label><input type="number" id="sw-p-start" value="80" step="1" min="-255" max="255"></div>
+      <div class="field"><label>Ganho<span>neg. → sobe quando erro ↓</span></label><input type="number" id="sw-step" value="-1" step="0.1"></div>
+    </div>
+    <div class="field-group cols2">
+      <div class="field"><label>Limite mín<span>PWM</span></label><input type="number" id="sw-min" value="-255" step="1" min="-255" max="255"></div>
+      <div class="field"><label>Limite máx<span>PWM</span></label><input type="number" id="sw-max" value="255" step="1" min="-255" max="255"></div>
+    </div>
+    <div class="section-label">Yaw — motor no ponto mais alto</div>
+    <div class="field-group cols2">
+      <div class="field"><label>Duty inicial<span>PWM</span></label><input type="number" id="sw-y-start" value="-80" step="1" min="-255" max="255"></div>
+      <div class="field"><label>Ganho<span>neg. → sobe quando erro ↓</span></label><input type="number" id="sw-y-step" value="-1" step="0.1"></div>
+    </div>
+    <div class="field-group cols2">
+      <div class="field"><label>Limite mín<span>PWM</span></label><input type="number" id="sw-y-min" value="-255" step="1" min="-255" max="255"></div>
+      <div class="field"><label>Limite máx<span>PWM</span></label><input type="number" id="sw-y-max" value="255" step="1" min="-255" max="255"></div>
+    </div>
+    <div class="section-label">Convergência</div>
+    <div class="field-group cols2">
+      <div class="field"><label>Limiar ângulo<span>°</span></label><input type="number" id="sw-ang-thr" value="3" step="0.5" min="0.1"></div>
+      <div class="field"><label>Tempo estável<span>s</span></label><input type="number" id="sw-settle" value="2" step="0.5" min="0.5"></div>
+    </div>
+    <div class="field-group cols2">
+      <div class="field"><label>Tempo máx busca<span>s</span></label><input type="number" id="sw-max-dwell" value="60" step="5" min="5"></div>
+      <div class="field"><label>Taxa atualiz.<span>Hz</span></label><input type="number" id="sw-hz" value="2" step="0.5" min="0.5" max="10"></div>
+    </div>
+    <div class="phase-row" style="margin-top:12px">
+      <span class="phase-name" id="sw-phase">Aguardando</span>
+      <span class="phase-pct" id="sw-pct">—</span>
+    </div>
+    <div class="prog-wrap"><div class="prog-bar" id="sw-bar"></div></div>
+    <button class="btn btn-primary" id="sw-start" onclick="swRun()" style="margin-top:14px">Iniciar Busca</button>
+    <div id="sw-actions" style="display:flex;gap:8px;margin-top:10px;align-items:stretch">
+      <button class="btn btn-danger" id="sw-stop-motors" style="display:none;flex:1;margin-top:0" onclick="swStopMotors()">Parar Motores</button>
+      <button class="btn btn-danger" id="sw-clr" style="display:none;flex:1;margin-top:0" onclick="swClear()">Limpar</button>
+    </div>
+    <div class="status" id="sw-status"></div>
+  </div>
+
+  <div class="card" id="sw-live" style="display:none">
+    <div class="card-title">Trajetória da Busca</div>
+    <pre id="sw-table" style="font-size:.72rem;color:#94a3b8;line-height:1.6;overflow-x:auto;margin:0"></pre>
   </div>
 </section>
 
@@ -539,6 +630,7 @@ async function saveParams() {
     body.append('refPitch', g('refPitch2'));
     body.append('refYaw',   g('refYaw2'));
     body.append('Ki1',  g('Ki1_2dof')); body.append('Ki2', g('Ki2_2dof'));
+    body.append('Ki3',  g('Ki3_2dof')); body.append('Ki4', g('Ki4_2dof'));
     body.append('Kx1',  g('Kx1_2dof')); body.append('Kx2', g('Kx2_2dof'));
     body.append('Kx3',  g('Kx3_2dof')); body.append('Kx4', g('Kx4_2dof'));
     body.append('Kx5',  g('Kx5_2dof')); body.append('Kx6', g('Kx6_2dof'));
@@ -547,14 +639,19 @@ async function saveParams() {
 
   setCfgStatus('Salvando...');
   try {
-    const r = await fetch('/api/params', { method:'POST', body });
-    r.ok ? setCfgStatus('Aplicado.') : setCfgStatus('Erro.', true);
-  } catch { setCfgStatus('Sem conexão.', true); }
+    // Envia params e garante que o ESP sai do modo TEST (caso venha da aba testes)
+    const [r] = await Promise.all([
+      fetch('/api/params',       { method:'POST', body }),
+      fetch('/api/test/control', { method:'POST' }),
+    ]);
+    if (testMode) setTestMode(false);
+    r.ok ? setCfgStatus('Aplicado.', 'ok') : setCfgStatus('Erro HTTP.', 'error');
+  } catch { setCfgStatus('Sem conexão.', 'error'); }
 }
 
-function setCfgStatus(msg, err=false) {
+function setCfgStatus(msg, cls='') {
   const el=document.getElementById('cfg-status');
-  el.textContent=msg; el.className='status'+(err?' error':'');
+  el.textContent=msg; el.className='status'+(cls?' '+cls:'');
 }
 
 // ── Carregar parâmetros salvos ────────────────────────────────────────────────
@@ -563,16 +660,19 @@ async function loadParams() {
     const r = await fetch('/api/params'); if(!r.ok) return;
     const d = await r.json();
     setMode(d.mode ?? 1);
-    const s = (id, v) => { const el=document.getElementById(id); if(el&&v!==undefined) el.value=v; };
+    const s = (id, v) => { const el=document.getElementById(id); if(el&&v!=null) el.value=v; };
     s('openLoopPitch', d.openLoopPitch); s('openLoopYaw', d.openLoopYaw);
-    s('refPitch1', d.refPitch); s('Ki1_1dof', d.Ki1);
-    s('Kx1_1dof',  d.Kx1);     s('Kx2_1dof', d.Kx2);
-    s('refPitch2', d.refPitch); s('refYaw2',   d.refYaw);
-    s('Ki1_2dof',  d.Ki1);     s('Ki2_2dof',  d.Ki2);
-    s('Kx1_2dof',  d.Kx1); s('Kx2_2dof', d.Kx2);
-    s('Kx3_2dof',  d.Kx3); s('Kx4_2dof', d.Kx4);
-    s('Kx5_2dof',  d.Kx5); s('Kx6_2dof', d.Kx6);
-    s('Kx7_2dof',  d.Kx7); s('Kx8_2dof', d.Kx8);
+    const d1 = d.dof1 || {};
+    s('refPitch1', d1.refPitch); s('Ki1_1dof', d1.Ki1);
+    s('Kx1_1dof',  d1.Kx1);     s('Kx2_1dof', d1.Kx2);
+    const d2 = d.dof2 || {};
+    s('refPitch2', d2.refPitch); s('refYaw2',   d2.refYaw);
+    s('Ki1_2dof',  d2.Ki1);     s('Ki2_2dof',  d2.Ki2);
+    s('Ki3_2dof',  d2.Ki3);     s('Ki4_2dof',  d2.Ki4);
+    s('Kx1_2dof',  d2.Kx1); s('Kx2_2dof', d2.Kx2);
+    s('Kx3_2dof',  d2.Kx3); s('Kx4_2dof', d2.Kx4);
+    s('Kx5_2dof',  d2.Kx5); s('Kx6_2dof', d2.Kx6);
+    s('Kx7_2dof',  d2.Kx7); s('Kx8_2dof', d2.Kx8);
   } catch {}
 }
 
@@ -601,7 +701,7 @@ class RChart {
     ctx.fillStyle='#0f172a';ctx.fillRect(0,0,W,H);
     for(let i=0;i<=4;i++){const y=PT+(i/4)*cH,val=yMax-(i/4)*(yMax-yMin);ctx.strokeStyle='#1e3a5f';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(PL,y);ctx.lineTo(PL+cW,y);ctx.stroke();ctx.fillStyle='#475569';ctx.font='9px monospace';ctx.textAlign='right';ctx.fillText(val.toFixed(1),PL-3,y+3.5);}
     if(yMin<0&&yMax>0){const zy=sy(0);ctx.strokeStyle='#334155';ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(PL,zy);ctx.lineTo(PL+cW,zy);ctx.stroke();ctx.setLineDash([]);}
-    series.forEach(s=>{ctx.strokeStyle=s.color;ctx.lineWidth=1.5;ctx.beginPath();let f=true;s.data.forEach((v,i)=>{if(v===null){f=true;return;}const x=sx(i),y=sy(v);f?ctx.moveTo(x,y):ctx.lineTo(x,y);f=false;});ctx.stroke();});
+    series.forEach(s=>{ctx.strokeStyle=s.color;ctx.lineWidth=s.width||1.5;ctx.setLineDash(s.dash||[]);ctx.beginPath();let f=true;s.data.forEach((v,i)=>{if(v===null){f=true;return;}const x=sx(i),y=sy(v);f?ctx.moveTo(x,y):ctx.lineTo(x,y);f=false;});ctx.stroke();ctx.setLineDash([]);});
     let lx=PL;ctx.font='10px sans-serif';series.forEach(s=>{ctx.fillStyle=s.color;ctx.fillRect(lx,H-14,14,3);ctx.fillStyle='#94a3b8';ctx.textAlign='left';ctx.fillText(s.label,lx+17,H-8);lx+=ctx.measureText(s.label).width+34;});
   }
 }
@@ -611,10 +711,24 @@ const cU     =new RChart('c-u',     {n:200,yMin:-255,yMax:255,series:[{label:'uP
 const cAccel  =new RChart('c-accel',    {n:200,h:110,yMin:-2.2,yMax:2.2,series:[{label:'ax',color:'#f87171'},{label:'ay',color:'#4ade80'},{label:'az',color:'#60a5fa'}]});
 const cVelPitch=new RChart('c-vel-pitch',{n:200,auto:true,series:[{label:'ω Pitch (°/s)',color:'#06b6d4'}]});
 const cVelYaw  =new RChart('c-vel-yaw',  {n:200,auto:true,series:[{label:'ω Yaw (°/s)', color:'#fb923c'}]});
+const cCtrlPitch=new RChart('c-ctrl-pitch',{n:300,auto:true,series:[
+  {label:'Enc Pitch', color:'#06b6d4'},
+  {label:'Setpoint',  color:'#fb923c', dash:[6,3], width:1.2}
+]});
+const cCtrlYaw=new RChart('c-ctrl-yaw',{n:300,auto:true,series:[
+  {label:'Enc Yaw',  color:'#4ade80'},
+  {label:'Setpoint', color:'#fb923c', dash:[6,3], width:1.2}
+]});
 
 const MNAME = ['Malha Aberta','1-DOF Pitch','2-DOF'];
 const DT_S = 1.0 / 50;
 let prevEncPitch=null, prevEncYaw=null;
+
+function getSetpoints(){
+  if(currentMode===1) return {rp:parseFloat(document.getElementById('refPitch1').value)||0, ry:null};
+  if(currentMode===2) return {rp:parseFloat(document.getElementById('refPitch2').value)||0, ry:parseFloat(document.getElementById('refYaw2').value)||0};
+  return {rp:null, ry:null};
+}
 
 // ── SSE ───────────────────────────────────────────────────────────────────────
 const dot=document.getElementById('dot'),connLbl=document.getElementById('conn-lbl');
@@ -627,16 +741,38 @@ src.addEventListener('telemetry',e=>{
     cEnc.push([d.encPitch, d.encYaw]);
     cU.push([d.uPitch, d.uYaw]);
     cAccel.push([d.ax, d.ay, d.az]);
+    let vp=null,vy=null;
     if(prevEncPitch!==null){
-      const vp=(d.encPitch-prevEncPitch)/DT_S, vy=(d.encYaw-prevEncYaw)/DT_S;
+      vp=(d.encPitch-prevEncPitch)/DT_S; vy=(d.encYaw-prevEncYaw)/DT_S;
       cVelPitch.push([vp]); cVelYaw.push([vy]);
       document.getElementById('cur-vel-pitch').textContent=vp.toFixed(1)+'°/s';
       document.getElementById('cur-vel-yaw').textContent=vy.toFixed(1)+'°/s';
     }
     prevEncPitch=d.encPitch; prevEncYaw=d.encYaw;
+    const sp=getSetpoints();
+    cCtrlPitch.push([d.encPitch, sp.rp]);
+    cCtrlYaw.push([d.encYaw, sp.ry]);
+    const fv=v=>v!=null?parseFloat(v).toFixed(2):'—';
+    document.getElementById('cl-ep').textContent=fv(d.encPitch)+'°';
+    document.getElementById('cl-ey').textContent=fv(d.encYaw)+'°';
+    document.getElementById('cl-vp').textContent=vp!=null?vp.toFixed(1)+'°/s':'—';
+    document.getElementById('cl-vy').textContent=vy!=null?vy.toFixed(1)+'°/s':'—';
+    document.getElementById('cl-up').textContent=fv(d.uPitch);
+    document.getElementById('cl-uy').textContent=fv(d.uYaw);
+    if(ctrlRec){
+      ctrlRows.push({t:Date.now()-ctrlStartMs, mode:d.mode,
+        rp:sp.rp, ry:sp.ry,
+        ep:d.encPitch, ey:d.encYaw,
+        vp:vp, vy:vy,
+        up:d.uPitch, uy:d.uYaw});
+      document.getElementById('ctrl-rec-status').textContent='Gravando — '+ctrlRows.length+' amostras';
+    }
+    if(swSampling) swSamples.push({ep:d.encPitch,ey:d.encYaw});
+    if(swOnSample) swOnSample(d);
     if(olRunning){
       olRows.push({t:Date.now()-olStartMs,dp:olCurDp,dy:olCurDy,
-        ax:d.ax,ay:d.ay,az:d.az,gx:d.gx,gy:d.gy,gz:d.gz,
+        ax:d.ax,ay:d.ay,az:d.az,
+        velPitch:d.pitchDot,velYaw:d.yawDot,
         pitch:d.pitch,yaw:d.yaw,encPitch:d.encPitch,encYaw:d.encYaw});
       const f2=v=>v!=null?parseFloat(v).toFixed(2):'—';
       document.getElementById('ol-pitch').textContent=f2(d.pitch)+'°';
@@ -666,7 +802,6 @@ src.addEventListener('calib',e=>{
 
 src.onopen =()=>{dot.classList.add('on');   connLbl.textContent='online'; };
 src.onerror=()=>{dot.classList.remove('on');connLbl.textContent='offline';};
-
 // ── Calibração ────────────────────────────────────────────────────────────────
 function setBadge(id,ok){const el=document.getElementById(id);if(!el)return;el.textContent=ok?'Calibrado':'Pendente';el.className='calib-badge '+(ok?'ok':'nok');}
 const fmt4=v=>(v===undefined||v===null)?'—':parseFloat(v).toFixed(4);
@@ -759,6 +894,14 @@ async function stopAll(){
   try{await fetch('/api/test/stop',{method:'POST'});st.textContent='Parado.';st.className='status ok';}
   catch{st.textContent='Sem conexão.';st.className='status error';}
 }
+async function resetESP(){
+  const st=document.getElementById('test-status');
+  if(!confirm('Reiniciar o ESP32?'))return;
+  try{
+    await fetch('/api/reset',{method:'POST'});
+    st.textContent='Reiniciando... reconecte em alguns segundos.';st.className='status';
+  }catch{st.textContent='Sem conexão.';st.className='status error';}
+}
 window.addEventListener('pagehide',()=>{if(testMode)navigator.sendBeacon('/api/test/stop');});
 
 // ── Rotina Malha Aberta ───────────────────────────────────────────────────────
@@ -770,10 +913,11 @@ const OL_TESTS = {
   '3': { label:'Teste 3/6', file:'teste3_6',
          phases:[{name:'Repouso', ms:1000,dp:0,dy:0},{name:'Motor ON',ms:5000,dp:255,dy:0}]  },
   '4': { label:'Teste 4/5', file:'teste4_5',
-         phases:[{name:'Repouso', ms:1000,dp:0,dy:0},{name:'Motor ON',ms:5000,dp:255,dy:0}]  },
+         phases:[{name:'Repouso', ms:1000,dp:0,dy:0},{name:'Motor ON',ms:5000,dp:0,dy:255}]  },
 };
 
 let olSelId='1', olRows=[], olRunning=false, olStartMs=0, olCurDp=0, olCurDy=0;
+let swRunning=false, swSampling=false, swSamples=[], swResults=[], swOnSample=null;
 
 function olSelect(el){
   document.querySelectorAll('.ol-opt').forEach(e=>e.classList.remove('sel'));
@@ -797,9 +941,10 @@ const olSleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function olRun(){
   if(olRunning)return;
   const test=OL_TESTS[olSelId]; if(!test)return;
-  olRunning=true; olRows=[]; olCurDp=0; olCurDy=0;
+  olRows=[]; olCurDp=0; olCurDy=0;
   document.getElementById('ol-start').disabled=true;
   document.getElementById('ol-dl').style.display='none';
+  document.getElementById('ol-clear').style.display='none';
   document.getElementById('ol-live').style.display='block';
   olSetPhase('Iniciando',-1); olSetStatus('');
 
@@ -809,6 +954,7 @@ async function olRun(){
 
   const totalMs=test.phases.reduce((s,p)=>s+p.ms,0);
   olStartMs=Date.now();
+  olRunning=true;
 
   for(const ph of test.phases){
     olCurDp=ph.dp; olCurDy=ph.dy;
@@ -826,24 +972,251 @@ async function olRun(){
   olSetPhase('Concluído',100);
   olSetStatus(test.label+' finalizado — '+olRows.length+' amostras','ok');
   document.getElementById('ol-dl').style.display='block';
+  document.getElementById('ol-clear').style.display='block';
   olFinish();
 }
 
 function olFinish(){ olRunning=false; document.getElementById('ol-start').disabled=false; }
 
+// ── Gravação CSV do controle ──────────────────────────────────────────────────
+let ctrlRec=false, ctrlRows=[], ctrlStartMs=0;
+
+function ctrlToggleRec(){
+  ctrlRec=!ctrlRec;
+  const btn=document.getElementById('ctrl-rec-btn');
+  if(ctrlRec){
+    ctrlRows=[];
+    ctrlStartMs=Date.now();
+    btn.textContent='■ Parar';
+    btn.className='btn btn-danger';
+    document.getElementById('ctrl-dl').style.display='none';
+    document.getElementById('ctrl-clear').style.display='none';
+    document.getElementById('ctrl-rec-status').textContent='Gravando...';
+  } else {
+    btn.textContent='● Gravar';
+    btn.className='btn btn-primary';
+    if(ctrlRows.length){
+      document.getElementById('ctrl-dl').style.display='';
+      document.getElementById('ctrl-clear').style.display='';
+      document.getElementById('ctrl-rec-status').textContent=ctrlRows.length+' amostras gravadas';
+    } else {
+      document.getElementById('ctrl-rec-status').textContent='';
+    }
+  }
+}
+
+function ctrlClearRec(){
+  ctrlRows=[];
+  ctrlRec=false;
+  document.getElementById('ctrl-rec-btn').textContent='● Gravar';
+  document.getElementById('ctrl-rec-btn').className='btn btn-primary';
+  document.getElementById('ctrl-dl').style.display='none';
+  document.getElementById('ctrl-clear').style.display='none';
+  document.getElementById('ctrl-rec-status').textContent='';
+}
+
+function ctrlDownload(){
+  const hdr='t_ms,mode,refPitch[deg],refYaw[deg],encPitch[deg],encYaw[deg],velPitch[deg_s],velYaw[deg_s],uPitch[PWM],uYaw[PWM]';
+  const f=v=>(v!=null?parseFloat(v).toFixed(4):'');
+  const body=ctrlRows.map(r=>[r.t,r.mode??'',f(r.rp),f(r.ry),f(r.ep),f(r.ey),f(r.vp),f(r.vy),f(r.up),f(r.uy)].join(',')).join('\n');
+  const blob=new Blob([hdr+'\n'+body],{type:'text/csv'});
+  const url=URL.createObjectURL(blob);
+  const ts=new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
+  Object.assign(document.createElement('a'),{href:url,download:'ctrl_'+ts+'.csv'}).click();
+  URL.revokeObjectURL(url);
+}
+
+function olClear(){
+  olRows=[];
+  document.getElementById('ol-dl').style.display='none';
+  document.getElementById('ol-clear').style.display='none';
+  olSetStatus('');
+}
+
 function olDownload(){
   const test=OL_TESTS[olSelId];
-  const hdr='t_ms,dutyPitch,dutyYaw,ax,ay,az,gx,gy,gz,pitch,yaw,encPitch,encYaw';
-  const f4=v=>(v!=null?parseFloat(v).toFixed(4):'');
-  const body=olRows.map(r=>[r.t,r.dp,r.dy,f4(r.ax),f4(r.ay),f4(r.az),
-    f4(r.gx),f4(r.gy),f4(r.gz),f4(r.pitch),f4(r.yaw),f4(r.encPitch),f4(r.encYaw)].join(',')).join('\n');
+  const hdr='t_ms,dutyPitch[PWM],dutyYaw[PWM],ax[m/s2],ay[m/s2],az[m/s2],velPitch[rad/s],velYaw[rad/s],pitch[rad],yaw[rad],encPitch[rad],encYaw[rad]';
+  const f6=v=>(v!=null?parseFloat(v).toFixed(6):'');
+  const d2r=v=>(v!=null?(parseFloat(v)*Math.PI/180).toFixed(6):'');
+  const body=olRows.map(r=>[r.t,r.dp,r.dy,f6(r.ax),f6(r.ay),f6(r.az),
+    d2r(r.velPitch),d2r(r.velYaw),d2r(r.pitch),d2r(r.yaw),d2r(r.encPitch),d2r(r.encYaw)].join(',')).join('\n');
   const blob=new Blob([hdr+'\n'+body],{type:'text/csv'});
   const url=URL.createObjectURL(blob);
   Object.assign(document.createElement('a'),{href:url,download:test.file+'.csv'}).click();
   URL.revokeObjectURL(url);
 }
 
-window.addEventListener('pagehide',()=>{ if(olRunning)navigator.sendBeacon('/api/test/stop'); });
+window.addEventListener('pagehide',()=>{ if(olRunning||swRunning)navigator.sendBeacon('/api/test/stop'); });
+
+// ── Busca de Equilíbrio (integrador em malha fechada) ────────────────────────
+// A cada ciclo: dutyP += gainP * encPitch  |  dutyY += gainY * encYaw
+// Converge ao ponto onde as forças se anulam (encPitch ≈ 0, encYaw ≈ 0).
+const swSleep=ms=>new Promise(r=>setTimeout(r,ms));
+
+function gn(id){return parseFloat(document.getElementById(id).value)||0;}
+
+async function swRun(){
+  if(swRunning)return;
+
+  let dutyP   = gn('sw-p-start');
+  let dutyY   = gn('sw-y-start');
+  const gainP = gn('sw-step');
+  const gainY = gn('sw-y-step');
+  const pMin  = gn('sw-min'),  pMax = gn('sw-max');
+  const yMin  = gn('sw-y-min'), yMax = gn('sw-y-max');
+  const angThr   = gn('sw-ang-thr')  || 3;
+  const stableMs = (gn('sw-settle')  || 2) * 1000;
+  const maxMs    = (gn('sw-max-dwell')|| 60)* 1000;
+  const periodMs = Math.round(1000 / (gn('sw-hz') || 2));
+
+  if(gainP===0&&gainY===0){swSetStatus('Ganho não pode ser zero.','error');return;}
+
+  swResults=[]; swRunning=true;
+  document.getElementById('sw-start').disabled=true;
+  document.getElementById('sw-clr').style.display='none';
+  document.getElementById('sw-live').style.display='block';
+  document.getElementById('sw-table').textContent='';
+  swSetPhase('Buscando...',-1); swSetStatus('');
+  swLogHeader();
+
+  // Inicia motores em modo TEST com duty inicial
+  try{
+    await fetch('/api/test/motors',{method:'POST',body:new URLSearchParams({dutyPitch:Math.round(dutyP),dutyYaw:Math.round(dutyY)})});
+  }catch{swSetStatus('Sem conexão.','error');swFinish();return;}
+
+  const t0=Date.now();
+  let stableStart=null, iter=0, found=false;
+
+  while(swRunning){
+    // Aguarda próximo ciclo e captura amostra via callback
+    const sample = await swNextSample(periodMs);
+    if(!sample||!swRunning)break;
+
+    iter++;
+    const ep=sample.encPitch, ey=sample.encYaw;
+
+    // Ajusta duties: ambos respondem ao erro de pitch (único ângulo observável)
+    dutyP = Math.max(pMin, Math.min(pMax, dutyP + gainP * ep));
+    dutyY = Math.max(yMin, Math.min(yMax, dutyY + gainY * ep));
+
+    const dpR=Math.round(dutyP), dyR=Math.round(dutyY);
+
+    // Aplica novos duties
+    try{await fetch('/api/test/motors',{method:'POST',body:new URLSearchParams({dutyPitch:dpR,dutyYaw:dyR})});}catch{}
+
+    // Atualiza log (mostra cada linha, max 60 linhas na tela)
+    swLogRow(iter, dpR, dyR, ep);
+
+    // Verifica convergência
+    const elapsed=Date.now()-t0;
+    const nearZero=Math.abs(ep)<angThr&&Math.abs(ey)<angThr;
+    if(nearZero){
+      if(stableStart===null)stableStart=Date.now();
+      const stableElapsed=Date.now()-stableStart;
+      swSetPhase('Estabilizando...',Math.min(100,stableElapsed/stableMs*100));
+      if(stableElapsed>=stableMs){
+        found=true; break;
+      }
+    }else{
+      stableStart=null;
+      swSetPhase('Buscando...',Math.min(99,elapsed/maxMs*100));
+    }
+
+    if(elapsed>=maxMs)break;
+  }
+
+  const dpF=Math.round(dutyP), dyF=Math.round(dutyY);
+
+  if(found){
+    // Mantém motores no ponto de equilíbrio via OPEN_LOOP — não desliga
+    try{
+      await fetch('/api/params',{method:'POST',body:new URLSearchParams({
+        mode:'0', openLoopPitch:dpF, openLoopYaw:dyF
+      })});
+      await fetch('/api/test/control',{method:'POST'});
+    }catch{}
+    document.getElementById('sw-stop-motors').style.display='block';
+  }else{
+    // Não convergiu — para motores
+    try{await fetch('/api/test/stop',{method:'POST'});}catch{}
+    try{await fetch('/api/test/control',{method:'POST'});}catch{}
+  }
+
+  swLogFooter(found, dpF, dyF);
+  swSetPhase(found?'Equilíbrio mantido':'Não convergiu',100);
+  swSetStatus(
+    found ? '✓ Pitch='+dpF+' PWM  Yaw='+dyF+' PWM — motores mantidos' : 'Não convergiu — ajuste ganho ou tempo máx.',
+    found ? 'ok' : 'error'
+  );
+  document.getElementById('sw-clr').style.display='block';
+  swFinish();
+}
+
+// Retorna a próxima amostra SSE ou a última disponível após periodMs
+function swNextSample(periodMs){
+  return new Promise(resolve=>{
+    let resolved=false;
+    swOnSample=d=>{ if(!resolved){resolved=true;swOnSample=null;resolve(d);} };
+    setTimeout(()=>{ if(!resolved){resolved=true;swOnSample=null;resolve(null);} }, periodMs+200);
+  });
+}
+
+function swFinish(){swRunning=false;swOnSample=null;document.getElementById('sw-start').disabled=false;}
+
+async function swStopMotors(){
+  try{await fetch('/api/test/stop',{method:'POST'});}catch{}
+  try{await fetch('/api/test/control',{method:'POST'});}catch{}
+  document.getElementById('sw-stop-motors').style.display='none';
+  swSetStatus('Motores parados.','error');
+}
+
+function swSetPhase(name,pct){
+  document.getElementById('sw-phase').textContent=name;
+  document.getElementById('sw-pct').textContent=pct<0?'—':Math.round(pct)+'%';
+  document.getElementById('sw-bar').style.width=Math.max(0,pct)+'%';
+}
+function swSetStatus(msg,cls=''){
+  const el=document.getElementById('sw-status');
+  el.textContent=msg; el.className='status'+(cls?' '+cls:'');
+}
+
+const SW_MAX_ROWS=60;
+let swLogLines=[];
+
+function swLogHeader(){
+  swLogLines=['Iter   DtyP   DtyY   Enc Pitch','─'.repeat(34)];
+  document.getElementById('sw-table').textContent=swLogLines.join('\n');
+}
+
+function swLogRow(iter,dp,dy,ep){
+  const fmt=v=>isNaN(v)?'    —   ':(v>=0?' ':'')+(v.toFixed(2)).padStart(7)+'°';
+  swLogLines.push(
+    String(iter).padStart(4)+'  '+String(dp).padStart(5)+'  '+String(dy).padStart(5)+'  '+fmt(ep)
+  );
+  if(swLogLines.length>SW_MAX_ROWS+2)swLogLines.splice(2,1);
+  document.getElementById('sw-table').textContent=swLogLines.join('\n');
+}
+
+function swLogFooter(found,dp,dy){
+  swLogLines.push('─'.repeat(34));
+  swLogLines.push(found
+    ? '✓ Equilíbrio: Pitch='+dp+' PWM   Yaw='+dy+' PWM'
+    : '✗ Não convergiu — último: Pitch='+dp+'  Yaw='+dy);
+  document.getElementById('sw-table').textContent=swLogLines.join('\n');
+}
+
+function swClear(){
+  swResults=[];swOnSample=null;swLogLines=[];
+  // Para motores caso ainda estejam no ponto de equilíbrio
+  fetch('/api/test/stop',{method:'POST'}).catch(()=>{});
+  fetch('/api/test/control',{method:'POST'}).catch(()=>{});
+  document.getElementById('sw-stop-motors').style.display='none';
+  document.getElementById('sw-clr').style.display='none';
+  document.getElementById('sw-live').style.display='none';
+  document.getElementById('sw-table').textContent='';
+  swSetStatus('');swSetPhase('Aguardando',-1);
+  document.getElementById('sw-bar').style.width='0%';
+}
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 loadParams();

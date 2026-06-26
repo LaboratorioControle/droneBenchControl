@@ -357,7 +357,6 @@ void taskCalibration(void* pv) {
 void setup() {
     delay(3000);
     Serial.begin(115200);
-    Serial.println("[FW] v-OTA-test");
 
     if (!LittleFS.begin(true)) Serial.println("[Setup] ERRO: LittleFS falhou.");
 
