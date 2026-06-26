@@ -56,6 +56,8 @@ void WebManager::begin() {
 
         cp.Ki1 = pf(req, "Ki1");
         cp.Ki2 = pf(req, "Ki2");
+        cp.Ki3 = pf(req, "Ki3");
+        cp.Ki4 = pf(req, "Ki4");
 
         cp.Kx1 = pf(req, "Kx1"); cp.Kx2 = pf(req, "Kx2");
         cp.Kx3 = pf(req, "Kx3"); cp.Kx4 = pf(req, "Kx4");
@@ -65,18 +67,36 @@ void WebManager::begin() {
         cp.openLoopPitch = pf(req, "openLoopPitch");
         cp.openLoopYaw   = pf(req, "openLoopYaw");
 
-        // Persiste — salva os valores originais em graus para exibir de volta
+        // Persiste — lê JSON existente para preservar a outra seção de ganhos.
+        // Remove campos do formato legado (flat) caso o arquivo seja antigo.
         JsonDocument doc;
-        doc["mode"]     = (int)cp.mode;
-        doc["refPitch"] = pf(req, "refPitch");   // graus (valor original)
-        doc["refYaw"]   = pf(req, "refYaw");
-        doc["Ki1"]  = cp.Ki1;  doc["Ki2"]  = cp.Ki2;
-        doc["Kx1"]  = cp.Kx1; doc["Kx2"]  = cp.Kx2;
-        doc["Kx3"]  = cp.Kx3; doc["Kx4"]  = cp.Kx4;
-        doc["Kx5"]  = cp.Kx5; doc["Kx6"]  = cp.Kx6;
-        doc["Kx7"]  = cp.Kx7; doc["Kx8"]  = cp.Kx8;
+        {
+            File rf = LittleFS.open("/parameters.json", "r");
+            if (rf) { deserializeJson(doc, rf); rf.close(); }
+        }
+        for (const char* k : {"refPitch","refYaw","Ki1","Ki2","Ki3","Ki4",
+                               "Kx1","Kx2","Kx3","Kx4","Kx5","Kx6","Kx7","Kx8"})
+            doc.remove(k);
+        doc["mode"]          = (int)cp.mode;
         doc["openLoopPitch"] = cp.openLoopPitch;
         doc["openLoopYaw"]   = cp.openLoopYaw;
+
+        if (cp.mode == ControlMode::DOF1) {
+            auto s = doc["dof1"].to<JsonObject>();
+            s["refPitch"] = pf(req, "refPitch");
+            s["Ki1"] = cp.Ki1;
+            s["Kx1"] = cp.Kx1; s["Kx2"] = cp.Kx2;
+        } else if (cp.mode == ControlMode::DOF2) {
+            auto s = doc["dof2"].to<JsonObject>();
+            s["refPitch"] = pf(req, "refPitch");
+            s["refYaw"]   = pf(req, "refYaw");
+            s["Ki1"] = cp.Ki1; s["Ki2"] = cp.Ki2;
+            s["Ki3"] = cp.Ki3; s["Ki4"] = cp.Ki4;
+            s["Kx1"] = cp.Kx1; s["Kx2"] = cp.Kx2;
+            s["Kx3"] = cp.Kx3; s["Kx4"] = cp.Kx4;
+            s["Kx5"] = cp.Kx5; s["Kx6"] = cp.Kx6;
+            s["Kx7"] = cp.Kx7; s["Kx8"] = cp.Kx8;
+        }
 
         File f = LittleFS.open("/parameters.json", "w");
         if (f) { serializeJson(doc, f); f.close(); }

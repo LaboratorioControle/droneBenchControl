@@ -227,18 +227,28 @@ void taskControl(void* pv) {
             }
 
             // ── 2-DOF ─────────────────────────────────────────────────────
-            // [Vp]   [Ki1  0 ]   [∫(πp−θ)]   [Kx1 Kx2 Kx3 Kx4]   [θ ]
-            // [  ] = [       ] · [       ] − [                  ] · [Ω ]
-            // [Vy]   [0  Ki2 ]   [∫(πy−Ω)]   [Kx5 Kx6 Kx7 Kx8]   [θ̇]
+            // [uP]   [Ki1  Ki3] [∫(rp−θ)dt]   [Kx1 Kx2 Kx3 Kx4] [θ ]
+            // [  ] = [        ]·[          ] − [                 ]·[Ω ]
+            // [uY]   [Ki4  Ki2] [∫(ry−Ω)dt]   [Kx5 Kx6 Kx7 Kx8] [θ̇]
             //                                                        [Ω̇]
-            case ControlMode::DOF2:
-                intPitch += (cp.refPitch - theta) * dt;
-                intYaw   += (cp.refYaw   - omega)  * dt;
-                uPitch = cp.Ki1 * intPitch
+            // Anti-windup independente por canal.
+            case ControlMode::DOF2: {
+                float ePitch = cp.refPitch - theta;
+                float eYaw   = cp.refYaw   - omega;
+                float uPEst  = (cp.Ki1*intPitch + cp.Ki3*intYaw)
+                               - (cp.Kx1*theta + cp.Kx2*omega + cp.Kx3*thetaDot + cp.Kx4*omegaDot);
+                float uYEst  = (cp.Ki4*intPitch + cp.Ki2*intYaw)
+                               - (cp.Kx5*theta + cp.Kx6*omega + cp.Kx7*thetaDot + cp.Kx8*omegaDot);
+                bool satP = fabsf(uPEst) >= (float)MOTOR_PWM_MAX_DUTY;
+                bool satY = fabsf(uYEst) >= (float)MOTOR_PWM_MAX_DUTY;
+                if (!satP || (ePitch * uPEst < 0.0f)) intPitch += ePitch * dt;
+                if (!satY || (eYaw   * uYEst < 0.0f)) intYaw   += eYaw   * dt;
+                uPitch = (cp.Ki1*intPitch + cp.Ki3*intYaw)
                          - (cp.Kx1*theta + cp.Kx2*omega + cp.Kx3*thetaDot + cp.Kx4*omegaDot);
-                uYaw   = cp.Ki2 * intYaw
+                uYaw   = (cp.Ki4*intPitch + cp.Ki2*intYaw)
                          - (cp.Kx5*theta + cp.Kx6*omega + cp.Kx7*thetaDot + cp.Kx8*omegaDot);
                 break;
+            }
         }
 
         // Clamp e aplica

@@ -21,10 +21,17 @@ struct ControlParams {
     float refYaw   = 0.0f;   // ry  [rad]
 
     // ── Ganhos integradores ──────────────────────────────────────────────
-    // 1-DOF: Ki (escalar)
-    // 2-DOF: Ki1 (linha do pitch), Ki2 (linha do yaw)
-    float Ki1 = 0.0f;
-    float Ki2 = 0.0f;
+    // 1-DOF: Ki1 (escalar)
+    // 2-DOF: matriz Ki (2×2) aplicada sobre [∫(rp-θ), ∫(ry-Ω)]
+    //   uPitch ← Ki1·∫(rp-θ) + Ki3·∫(ry-Ω)
+    //   uYaw   ← Ki4·∫(rp-θ) + Ki2·∫(ry-Ω)
+    //
+    //   Ki = [Ki1  Ki3]
+    //        [Ki4  Ki2]
+    float Ki1 = 0.0f;   // diagonal pitch
+    float Ki2 = 0.0f;   // diagonal yaw
+    float Ki3 = 0.0f;   // cruzado: ∫yaw  → uPitch
+    float Ki4 = 0.0f;   // cruzado: ∫pitch → uYaw
 
     // ── Ganhos de estado ─────────────────────────────────────────────────
     // 1-DOF: Kx1 (θ), Kx2 (θ̇)
