@@ -9,7 +9,7 @@ Firmware de controle e telemetria desenvolvido pela equipe de Eletrônica e Sist
 | Componente | Modelo / Detalhe |
 |---|---|
 | Microcontrolador | ESP32-S3 DevKitC-1 (16 MB Flash, 8 MB PSRAM) |
-| IMU | ICM42670P (I2C) |
+| IMU | MPU6050 (I2C) |
 | Encoders | Ópticos em quadratura — 600 PPR × 4 = 2400 pulsos/volta |
 | Motores | DC com driver PWM bidirecional (RPWM/LPWM) |
 
@@ -26,14 +26,46 @@ O sistema usa FreeRTOS em dual-core para isolar o controle crítico da telemetri
 | `taskSensor` | 0 | 50 Hz | Lê IMU + encoders e distribui dados via filas |
 | `taskTelemetry` | 0 | 50 Hz | Envia CSV via Serial e JSON via SSE para o browser |
 | `taskControl` | 1 | 100 Hz | Lê dados da fila, calcula lei de controle e aciona motores |
+| `taskCalibration` | 0 | event-driven | Calibração de IMU, motores e encoders sob demanda da web |
 
 A comunicação entre tasks é feita exclusivamente por **filas FreeRTOS** — sem variáveis globais compartilhadas.
 
 ```
-IMU::read() ──► ctrlQueue  ──► taskControl   ──► Motor::setVelocidade()
-           └──► telemQueue ──► taskTelemetry ──► Serial (CSV para MATLAB)
-                                             └──► SSE /api/events (browser)
+IMU::read() ──► sensorQueue ──► taskControl   ──► Motor::setVelocidade()
+            └──► telemQueue  ──► taskTelemetry ──► Serial (CSV para MATLAB)
+                                              └──► SSE /api/events (browser)
+
+web ──► motorCmdQueue   ──► taskControl      (acionamento manual / calibração)
+    ──► calibCmdQueue   ──► taskCalibration  (rotinas de calibração)
+    ──► ctrlParamsQueue ──► taskControl      (ganhos do controlador em runtime)
 ```
+
+---
+
+## Modos de Controle
+
+Configuráveis em runtime via interface web, sem reflash.
+
+| Modo | Descrição |
+|---|---|
+| `OPEN_LOOP` | Duty cycle fixo — útil para identificação do sistema |
+| `DOF1` | Controle de pitch: `U = Ki1·∫(rp − θ)dt − [Kx1 Kx2]·[θ, θ̇]ᵀ` com anti-windup |
+| `DOF2` | Controle acoplado pitch + yaw com ganhos cruzados (Ki3, Ki4, Kx3–Kx8) e anti-windup independente por canal |
+
+---
+
+## Calibração
+
+O sistema possui rotinas de calibração acessíveis pela interface web, com dados persistidos em LittleFS (`/calibration.json`):
+
+| Rotina | Descrição |
+|---|---|
+| **IMU** | Coleta 500 amostras em repouso e calcula offsets de bias (acelerômetro + giroscópio) |
+| **Motores** | Rampa crescente de duty até encoder detectar movimento — determina deadband por direção |
+| **Encoders** | Zera posição atual e salva no flash — corrige drift após mover o drone com energia desligada |
+| **Reset** | Remove `/calibration.json` e restaura todos os defaults |
+
+Na inicialização, os offsets e posições salvas são automaticamente aplicados. Um shutdown handler garante que a posição dos encoders seja salva ao desligar de forma controlada.
 
 ---
 
@@ -43,7 +75,7 @@ O ESP32 sobe como **Access Point Wi-Fi**. Conecte-se à rede configurada e acess
 
 | Página | Rota | Função |
 |---|---|---|
-| Config PID | `/` | Ajuste dos ganhos Kp, Ki, Kd de cada controlador |
+| Config PID | `/` | Ajuste dos ganhos e modo de controle em runtime |
 | Teste de Motor | `/test` | Controle manual de duty cycle com telemetria em tempo real |
 
 ---
@@ -80,32 +112,12 @@ pio device monitor           # abre o monitor serial (115200 baud)
 
 ---
 
-## Integração — Equipe de Modelagem (MCM)
-
-A lei de controle deve ser inserida em `src/main.cpp`, dentro de `taskControl`, nos trechos marcados com `TODO (MCM)`:
-
-```cpp
-float errPitch = 0.0f - last.pitch;
-// TODO (MCM): substituir por PID
-p->motorPitch->setVelocidade(errPitch);
-```
-
-Os dados disponíveis em `SensorData` são:
-
-| Campo | Descrição |
-|---|---|
-| `pitch` | Ângulo pitch em graus (acelerômetro IMU) |
-| `yaw` | Ângulo yaw em graus (integração giroscópio) |
-| `encPitchDeg` | Ângulo do encoder de pitch em graus |
-| `encYawDeg` | Ângulo do encoder de yaw em graus |
-
----
-
 ## Roadmap
 
 - [x] Mapeamento de hardware e pinout
 - [x] Ambiente FreeRTOS dual-core
-- [x] Leitura de IMU (ICM42670P) e encoders em quadratura
+- [x] Leitura de IMU (MPU6050) e encoders em quadratura
 - [x] Telemetria Serial (CSV) para MATLAB/Simulink
-- [x] Interface web com configuração PID e teste de motor
-- [ ] Integração da lei de controle (equipe MCM)
+- [x] Interface web com configuração de ganhos e teste de motor
+- [x] Lei de controle — DOF1 e DOF2 com state-space e anti-windup
+- [x] Sistema de calibração (IMU, motores, encoders) com persistência em LittleFS
