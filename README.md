@@ -19,7 +19,33 @@ Firmware de controle e telemetria desenvolvido pela equipe de Eletrônica e Sist
 
 O sistema usa FreeRTOS em dual-core para isolar o controle crítico da telemetria:
 
-![Arquitetura de Firmware](assets/fluxograma_pt.png)
+## Arquitetura do Firmware
+
+```mermaid
+flowchart LR
+    subgraph Nucleo0 ["Núcleo 0 (baixa prioridade)"]
+        direction TB
+        TS["Task Sensor<br/>(50 Hz)"]
+        TT["Task Telemetria"]
+        TC["Task Calibração"]
+    end
+
+    subgraph Nucleo1 ["Núcleo 1 (alta prioridade)"]
+        TCtrl["Task Controle<br/>(100 Hz)"]
+    end
+
+    Web["Interface Web<br/>(HTTP / SSE)"]
+
+    TS -- "fila sensores" --> TCtrl
+    TCtrl -- "fila telemetria" --> TT
+    TT -- "serial / SSE" --> Web
+    Web -. "comandos" .-> TCtrl
+    Web -. "calibração" .-> TC
+```
+
+Núcleo 1 executa uma única tarefa de controle em ciclo determinístico de 100 Hz (`vTaskDelayUntil`), responsável por ler os ângulos mais recentes, calcular o erro, executar a lei de controle por realimentação de estados com ação integral e atuar os motores via PWM.
+
+Núcleo 0 executa três tarefas concorrentes: aquisição de sensores (encoders a 50 Hz, `vTaskDelay`), telemetria (serial CSV + SSE) e calibração (sob demanda). A comunicação entre tarefas é feita exclusivamente por filas FreeRTOS.
 
 | Task | Core | Frequência | Responsabilidade |
 |---|---|---|---|
