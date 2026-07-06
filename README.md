@@ -147,3 +147,9 @@ pio device monitor           # abre o monitor serial (115200 baud)
 - [x] Interface web com configuração de ganhos e teste de motor
 - [x] Lei de controle — DOF1 e DOF2 com state-space e anti-windup
 - [x] Sistema de calibração (IMU, motores, encoders) com persistência em LittleFS
+
+---
+
+## Licença
+
+Este projeto é distribuído sob a [GNU General Public License v3.0](LICENSE). Isso significa que qualquer trabalho derivado que seja distribuído (modificado ou não) deve permanecer open source sob a mesma licença.
